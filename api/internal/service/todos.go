@@ -90,8 +90,8 @@ func (s *Service) Todo(ctx context.Context, id int64) (domain.Todo, error) {
 	return s.store.Todo(ctx, id)
 }
 
-func (s *Service) Todos(ctx context.Context) ([]domain.Todo, error) {
-	return s.store.Todos(ctx)
+func (s *Service) List(ctx context.Context, f store.ListFilter) (store.Page, error) {
+	return s.store.List(ctx, f)
 }
 
 func (s *Service) Update(ctx context.Context, id int64, version int, in TodoInput) (domain.Todo, error) {

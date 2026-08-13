@@ -1,4 +1,4 @@
-import type { Todo } from '../types'
+import type { SortDir, SortField, Todo } from '../types'
 import { describeCreated, describeDue, exactDue } from '../lib/dates'
 import { priorityLabel, statusLabel } from '../lib/format'
 import { recurrenceLabel } from '../lib/recurrence'
@@ -27,24 +27,65 @@ const rankMark: Record<string, string> = {
   high: 'text-ink',
 }
 
+// Dates read newest first, names and ranks from the top, so the first click on
+// a column gives the order somebody actually wanted.
+const firstDirection: Record<SortField, SortDir> = {
+  name: 'asc',
+  status: 'asc',
+  priority: 'asc',
+  due: 'asc',
+  created: 'desc',
+}
+
 export function TaskList({
   todos,
   activeId,
+  sort,
+  dir,
+  onSort,
   onOpen,
 }: {
   todos: Todo[]
   activeId: number | null
+  sort: SortField
+  dir: SortDir
+  onSort: (sort: SortField, dir: SortDir) => void
   onOpen: (todo: Todo) => void
 }) {
+  // Clicking the active column reverses it; clicking another switches to it.
+  const sortBy = (field: SortField) =>
+    onSort(field, field === sort ? (dir === 'asc' ? 'desc' : 'asc') : firstDirection[field])
+
+  const header = (field: SortField, label: string, className = '') => (
+    <Th className={className}>
+      <button
+        type="button"
+        onClick={() => sortBy(field)}
+        data-testid={`sort-${field}`}
+        aria-sort={field === sort ? (dir === 'asc' ? 'ascending' : 'descending') : 'none'}
+        className="inline-flex items-center gap-1 rounded transition-colors hover:text-ink-soft"
+      >
+        {label}
+        {/* The arrow is drawn from the state rather than toggled alongside it,
+            so it cannot disagree with the order on screen. */}
+        {field === sort && (
+          <span aria-hidden className="text-[10px] text-ink-faint">
+            {dir === 'asc' ? '▲' : '▼'}
+          </span>
+        )}
+      </button>
+    </Th>
+  )
+
   return (
     <table className="w-full border-collapse text-left">
       <thead>
         <tr className="border-b border-rule-firm">
-          <Th className="pl-4">Task</Th>
-          <Th>Due</Th>
-          <Th>Status</Th>
-          <Th>Priority</Th>
-          <Th className="pr-4">Created</Th>
+          {header('name', 'Task', 'pl-4')}
+          {header('due', 'Due')}
+          {header('status', 'Status')}
+          {header('priority', 'Priority')}
+          {header('created', 'Created', 'pr-4')}
         </tr>
       </thead>
       <tbody>

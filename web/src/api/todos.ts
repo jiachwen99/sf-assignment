@@ -1,12 +1,33 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { request } from './client'
 import { MIN_SEARCH, queryKeys } from '../constants'
-import type { DependencyView, Todo, TodoInput } from '../types'
+import type { DependencyView, ListQuery, Todo, TodoInput, TodoPage } from '../types'
 
-export function useTodos() {
-  return useQuery({
-    queryKey: queryKeys.todos,
-    queryFn: () => request<{ items: Todo[] }>('/todos').then((r) => r.items),
+// Turns the list state into a query string, dropping anything unset so the URL
+// and the request both stay readable.
+export function listParams(query: ListQuery, cursor?: string) {
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(query)) {
+    if (Array.isArray(value)) value.forEach((v) => params.append(key, v))
+    else if (value) params.set(key, value)
+  }
+  if (cursor) params.set('cursor', cursor)
+  return params.toString()
+}
+
+/*
+ * An infinite query from the start rather than a plain one made paged later.
+ *
+ * A keyset cursor is not an offset: the next page is fetched with a token from
+ * the last row, so the swap replaces the list rather than appending to it, and
+ * retrofitting that onto a useQuery means rewriting every caller.
+ */
+export function useTodos(query: ListQuery) {
+  return useInfiniteQuery({
+    queryKey: queryKeys.list(query),
+    queryFn: ({ pageParam }) => request<TodoPage>(`/todos?${listParams(query, pageParam)}`),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.nextCursor,
   })
 }
 

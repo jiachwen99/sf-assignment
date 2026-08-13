@@ -7,3 +7,5 @@ export type {
   Blocker,
   DependencyView,
 } from './todo'
+
+export type { SortField, SortDir, ListQuery, TodoPage } from './list'

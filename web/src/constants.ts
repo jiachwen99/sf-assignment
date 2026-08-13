@@ -18,7 +18,10 @@ export const SCHEDULES = [
 export const MIN_SEARCH = 3
 
 export const queryKeys = {
+  // Every list state is its own cache entry, so changing a filter or a sort
+  // starts a fresh page rather than appending to somebody else's.
   todos: ['todos'],
+  list: (query: object) => ['todos', 'list', query],
   counts: ['counts'],
   trash: ['trash'],
   dependencies: (id: number) => ['todos', id, 'dependencies'],

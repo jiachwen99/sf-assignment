@@ -87,7 +87,7 @@ func TestReopeningAndCompletingAgainDoesNotForkTheSeries(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, res.Spawned, "the schedule left with the first successor")
 
-	all, err := s.Todos(ctx)
+	all, err := allTodos(ctx, s)
 	require.NoError(t, err)
 	require.Len(t, all, 2, "the original and one successor, not three rows")
 }
@@ -122,7 +122,7 @@ func TestCompletingAOneOffSpawnsNothing(t *testing.T) {
 	require.Equal(t, domain.Completed, res.Completed.Status)
 	require.Nil(t, res.Spawned)
 
-	all, err := s.Todos(ctx)
+	all, err := allTodos(ctx, s)
 	require.NoError(t, err)
 	require.Len(t, all, 1)
 }
@@ -143,7 +143,7 @@ func TestCompletingTwiceAtTheSameVersionSpawnsOnce(t *testing.T) {
 	_, err = s.Complete(ctx, made.ID, made.Version, due)
 	require.ErrorAs(t, err, &conflict)
 
-	all, err := s.Todos(ctx)
+	all, err := allTodos(ctx, s)
 	require.NoError(t, err)
 	require.Len(t, all, 2)
 }

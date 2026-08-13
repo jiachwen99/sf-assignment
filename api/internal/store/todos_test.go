@@ -74,7 +74,7 @@ func TestEmptyNameIsRejectedAndNothingPersists(t *testing.T) {
 	})
 	require.Error(t, err)
 
-	all, err := s.Todos(ctx)
+	all, err := allTodos(ctx, s)
 	require.NoError(t, err)
 	require.Empty(t, all)
 }
@@ -116,7 +116,7 @@ func TestDeleteRemovesItFromTheList(t *testing.T) {
 
 	require.NoError(t, s.DeleteTodo(ctx, gone.ID, gone.Version))
 
-	all, err := s.Todos(ctx)
+	all, err := allTodos(ctx, s)
 	require.NoError(t, err)
 	require.Len(t, all, 1)
 	require.Equal(t, keep.ID, all[0].ID)
@@ -130,7 +130,7 @@ func TestListIsNewestFirst(t *testing.T) {
 	first := newTodo(t, s, "first")
 	second := newTodo(t, s, "second")
 
-	all, err := s.Todos(ctx)
+	all, err := allTodos(ctx, s)
 	require.NoError(t, err)
 	require.Len(t, all, 2)
 	require.Equal(t, second.ID, all[0].ID)
@@ -185,7 +185,7 @@ func TestStaleDeleteIsRejectedAndTheRowSurvives(t *testing.T) {
 	var conflict *domain.ConflictError
 	require.ErrorAs(t, s.DeleteTodo(ctx, made.ID, made.Version), &conflict)
 
-	all, err := s.Todos(ctx)
+	all, err := allTodos(ctx, s)
 	require.NoError(t, err)
 	require.Len(t, all, 1)
 }

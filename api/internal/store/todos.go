@@ -72,22 +72,6 @@ func (s *Store) Todo(ctx context.Context, id int64) (domain.Todo, error) {
 	return t, wrap("read todo", err)
 }
 
-const listTodos = `
-SELECT ` + todoColumns + `
-FROM todos WHERE deleted_at IS NULL
-ORDER BY created_at DESC, id DESC`
-
-// Unbounded on purpose. Paging, filtering and sorting arrive together in
-// SF-007, where the indexes that make them cheap are designed alongside them.
-func (s *Store) Todos(ctx context.Context) ([]domain.Todo, error) {
-	rows, err := s.pool.Query(ctx, listTodos)
-	if err != nil {
-		return nil, wrap("list todos", err)
-	}
-	out, err := pgx.CollectRows(rows, pgx.RowToStructByName[domain.Todo])
-	return out, wrap("list todos", err)
-}
-
 // Matched on the version the client read, so a write built from a stale copy
 // updates nothing rather than overwriting whatever landed in between.
 const updateTodo = `

@@ -16,7 +16,7 @@ func TestDeletingHidesATaskWithoutDestroyingIt(t *testing.T) {
 	made := newTodo(t, s, "cancel the subscription")
 	require.NoError(t, s.DeleteTodo(ctx, made.ID, made.Version))
 
-	live, err := s.Todos(ctx)
+	live, err := allTodos(ctx, s)
 	require.NoError(t, err)
 	require.Empty(t, live)
 
@@ -40,7 +40,7 @@ func TestRestoringPutsItBackInTheList(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, made.ID, back.ID)
 
-	live, err := s.Todos(ctx)
+	live, err := allTodos(ctx, s)
 	require.NoError(t, err)
 	require.Len(t, live, 1)
 
