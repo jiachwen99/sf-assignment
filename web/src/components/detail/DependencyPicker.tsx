@@ -37,7 +37,7 @@ export function DependencyPicker({
         data-testid="dependency-search"
       />
       {search.trim().length >= MIN_SEARCH && offered.length > 0 && (
-        <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-md border border-rule-firm bg-canvas py-1 shadow-lg">
+        <ul data-testid="dependency-results" className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-md border border-rule-firm bg-canvas py-1 shadow-lg">
           {offered.map((m) => (
             <li key={m.id}>
               <button

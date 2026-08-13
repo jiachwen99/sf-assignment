@@ -98,6 +98,7 @@ export function TaskList({
               key={todo.id}
               onClick={() => onOpen(todo)}
               data-testid="todo-row"
+              data-id={todo.id}
               aria-selected={todo.id === activeId}
               className={`cursor-pointer border-b border-rule transition-colors duration-150 ${
                 todo.id === activeId ? 'bg-action-wash' : 'hover:bg-raised'
@@ -110,9 +111,6 @@ export function TaskList({
                   >
                     {todo.name}
                   </span>
-                  {/* The cadence is the point, not the fact that an icon is
-                      present. An unlabelled glyph makes a reader hover every
-                      row to find out what it means. */}
                   {/* Blocked comes first: it is the one thing that stops you
                       acting on a row, so it should be read before the name has
                       finished registering. */}
@@ -121,6 +119,9 @@ export function TaskList({
                       Blocked
                     </Badge>
                   )}
+                  {/* The cadence is the point, not the fact that an icon is
+                      present. An unlabelled glyph makes a reader hover every
+                      row to find out what it means. */}
                   {repeats && (
                     <Badge data-testid="repeats-badge">
                       <RepeatIcon />
