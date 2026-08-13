@@ -8,4 +8,4 @@ export type {
   DependencyView,
 } from './todo'
 
-export type { SortField, SortDir, ListQuery, TodoPage } from './list'
+export type { SortField, SortDir, ListQuery, TodoPage, Counts, ViewId } from './list'

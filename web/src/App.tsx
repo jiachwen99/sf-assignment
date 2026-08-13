@@ -1,14 +1,17 @@
 import { useEffect, useState } from 'react'
 
-import { useRestoreTodo, useTodos, useTrash } from './api/todos'
+import { useCounts, useRestoreTodo, useTodos, useTrash } from './api/todos'
 import { EmptyState } from './components/EmptyState'
 import { FilterRow } from './components/FilterRow'
 import { TaskDetail } from './components/TaskDetail'
 import { TaskList, TaskListSkeleton } from './components/TaskList'
 import { TrashList } from './components/TrashList'
+import { ViewRail } from './components/ViewRail'
 import { Button } from './components/ui/Button'
+import { useInfiniteScroll } from './hooks/useInfiniteScroll'
 import { DEFAULT_DIR, DEFAULT_SORT, queryFromURL, urlFromQuery } from './lib/url'
-import type { ListQuery, SortDir, SortField, Todo } from './types'
+import { queryForView, viewFromQuery, viewTitle } from './lib/views'
+import type { ListQuery, SortDir, SortField, Todo, ViewId } from './types'
 
 // 'new' rather than a second piece of state: a task cannot be both open for
 // editing and being created, and one value makes that unrepresentable.
@@ -20,10 +23,14 @@ export function App() {
   const [selection, setSelection] = useState<Selection>(null)
 
   const { data, isPending, error, hasNextPage, isFetchingNextPage, fetchNextPage } = useTodos(query)
+  const { data: counts } = useCounts()
   const { data: trash } = useTrash()
   const restore = useRestoreTodo()
 
   const todos = data?.pages.flatMap((p) => p.items)
+  const view = viewFromQuery(query)
+
+  const sentinel = useInfiniteScroll(Boolean(hasNextPage) && !isFetchingNextPage, fetchNextPage)
 
   // Written on change rather than read on render, so the URL follows the list
   // instead of the two arguing about which one is authoritative.
@@ -44,13 +51,24 @@ export function App() {
     setSelection(null)
   }
 
+  const goToView = (next: ViewId) => {
+    setQuery(queryForView(next, query))
+    showTrash(false)
+  }
+
   const sortBy = (sort: SortField, dir: SortDir) => setQuery({ ...query, sort, dir })
 
   return (
     <div className="flex h-screen bg-canvas text-ink">
+      {/* The rail only appears once there is room for it and the table both.
+          Below that it would be taking width from the thing it navigates. */}
+      <aside className="hidden w-52 shrink-0 overflow-y-auto border-r border-rule xl:block">
+        <ViewRail active={view} counts={counts} onSelect={goToView} />
+      </aside>
+
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <header className="flex items-center gap-3 border-b border-rule px-4 py-3">
-          <h1 className="text-[15px] font-medium">{inTrash ? 'Trash' : 'Tasks'}</h1>
+          <h1 className="text-[15px] font-medium">{inTrash ? 'Trash' : viewTitle(view)}</h1>
           {inTrash && <span className="tabular text-[13px] text-ink-faint">{trash?.length}</span>}
 
           {/* A link rather than a view in its own right. The trash is somewhere
@@ -62,7 +80,7 @@ export function App() {
             onClick={() => showTrash(!inTrash)}
             data-testid="toggle-trash"
           >
-            {inTrash ? 'Back to tasks' : `Trash${trash?.length ? ` (${trash.length})` : ''}`}
+            {inTrash ? 'Back to tasks' : `Trash${counts?.trash ? ` (${counts.trash})` : ''}`}
           </Button>
 
           {!inTrash && (
@@ -71,6 +89,13 @@ export function App() {
             </Button>
           )}
         </header>
+
+        {/* The same views as a strip once the rail no longer fits. */}
+        {!inTrash && (
+          <div className="xl:hidden">
+            <ViewRail active={view} counts={counts} onSelect={goToView} orientation="horizontal" />
+          </div>
+        )}
 
         {!inTrash && <FilterRow query={query} onChange={setQuery} />}
 
@@ -98,6 +123,7 @@ export function App() {
                       onSort={sortBy}
                       onOpen={setSelection}
                     />
+                    <div ref={sentinel} aria-hidden />
                     {hasNextPage && (
                       <div className="flex justify-center py-4">
                         <Button

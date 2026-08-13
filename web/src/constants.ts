@@ -17,6 +17,10 @@ export const SCHEDULES = [
 // selective searches from ever reaching the trigram index.
 export const MIN_SEARCH = 3
 
+// Long enough that typing does not recount the table, short enough that the
+// rail is not visibly wrong.
+export const COUNTS_STALE_TIME = 30_000
+
 export const queryKeys = {
   // Every list state is its own cache entry, so changing a filter or a sort
   // starts a fresh page rather than appending to somebody else's.

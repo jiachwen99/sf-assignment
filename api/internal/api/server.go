@@ -28,6 +28,7 @@ func NewServer(svc *service.Service, log *slog.Logger) *Server {
 	s.mux.HandleFunc("POST /api/todos/{id}/complete", s.completeTodo)
 
 	s.mux.HandleFunc("GET /api/todos/search", s.searchTodos)
+	s.mux.HandleFunc("GET /api/todos/counts", s.counts)
 	s.mux.HandleFunc("GET /api/todos/trash", s.listTrash)
 	s.mux.HandleFunc("POST /api/todos/{id}/restore", s.restoreTodo)
 	s.mux.HandleFunc("GET /api/todos/{id}/dependencies", s.todoDependencies)

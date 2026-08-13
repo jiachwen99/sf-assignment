@@ -97,6 +97,11 @@ func listFilter(r *http.Request) (store.ListFilter, error) {
 		blocked := v == "true"
 		f.Blocked = &blocked
 	}
+	if v := q.Get("recurring"); v != "" {
+		recurring := v == "true"
+		f.Recurring = &recurring
+	}
+	f.Overdue = q.Get("overdue") == "true"
 
 	return f, nil
 }
@@ -179,6 +184,15 @@ func (s *Server) deleteTodo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) counts(w http.ResponseWriter, r *http.Request) {
+	counts, err := s.svc.Counts(r.Context())
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, counts)
 }
 
 func (s *Server) listTrash(w http.ResponseWriter, r *http.Request) {

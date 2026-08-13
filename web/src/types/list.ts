@@ -12,6 +12,8 @@ export type ListQuery = {
   dueFrom?: string
   dueTo?: string
   blocked?: string
+  recurring?: string
+  overdue?: string
   sort?: SortField
   dir?: SortDir
 }
@@ -20,3 +22,25 @@ export type TodoPage = {
   items: Todo[]
   nextCursor?: string
 }
+
+export type Counts = {
+  all: number
+  notStarted: number
+  inProgress: number
+  completed: number
+  archived: number
+  overdue: number
+  blocked: number
+  recurring: number
+  trash: number
+}
+
+export type ViewId =
+  | 'all'
+  | 'not_started'
+  | 'in_progress'
+  | 'completed'
+  | 'archived'
+  | 'overdue'
+  | 'blocked'
+  | 'recurring'

@@ -54,7 +54,11 @@ type ListFilter struct {
 	DueFrom    *time.Time
 	DueTo      *time.Time
 	Blocked    *bool
-	Name       string
+	Recurring  *bool
+	// A one-sided filter, because "not overdue" is not a question anyone asks
+	// of a task list.
+	Overdue bool
+	Name    string
 
 	Sort   SortField
 	Dir    SortDir
@@ -158,6 +162,18 @@ func buildListQuery(f ListFilter) (string, []any) {
 		} else {
 			b.add("unmet_deps_count = 0")
 		}
+	}
+	if f.Recurring != nil {
+		if *f.Recurring {
+			b.add("recur_unit IS NOT NULL")
+		} else {
+			b.add("recur_unit IS NULL")
+		}
+	}
+	// Finished and shelved tasks are not overdue: there is nothing left to do
+	// about them, and counting them would make the number permanent.
+	if f.Overdue {
+		b.add("due_date < now() AND status NOT IN ('completed', 'archived')")
 	}
 	if f.Name != "" {
 		// The one filter that scans rather than seeks; see 0004_name_search.sql.

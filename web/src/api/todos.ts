@@ -1,7 +1,7 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { request } from './client'
-import { MIN_SEARCH, queryKeys } from '../constants'
-import type { DependencyView, ListQuery, Todo, TodoInput, TodoPage } from '../types'
+import { COUNTS_STALE_TIME, MIN_SEARCH, queryKeys } from '../constants'
+import type { Counts, DependencyView, ListQuery, Todo, TodoInput, TodoPage } from '../types'
 
 // Turns the list state into a query string, dropping anything unset so the URL
 // and the request both stay readable.
@@ -37,9 +37,24 @@ function useTodoMutation<T>(fn: (v: T) => Promise<unknown>) {
     mutationFn: fn,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.todos })
-      // Deleting moves a task into the trash, so that list is stale too.
+      // Deleting moves a task into the trash, so that list is stale too, and
+      // any write can move a total in the rail.
       qc.invalidateQueries({ queryKey: queryKeys.trash })
+      qc.invalidateQueries({ queryKey: queryKeys.counts })
     },
+  })
+}
+
+/*
+ * The only query that scans rather than seeks, so it is held for half a minute
+ * rather than refetched after every edit. The rail's totals being a few seconds
+ * stale is not a problem; making every keystroke count the whole table is.
+ */
+export function useCounts() {
+  return useQuery({
+    queryKey: queryKeys.counts,
+    queryFn: () => request<Counts>('/todos/counts'),
+    staleTime: COUNTS_STALE_TIME,
   })
 }
 
