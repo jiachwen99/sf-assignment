@@ -1,0 +1,494 @@
+openapi: 3.1.0
+
+info:
+  title: TODO API
+  version: "1.0"
+  description: |
+    Tasks, their schedules and the links between them.
+
+    Three things are worth knowing before reading the paths.
+
+    **Every write carries a version.** The task you read has a `version`; send it
+    back with your write and the server refuses the write if the row moved on in
+    between, answering 409 with the row as it now stands. It rides in the body
+    on PUT and in the query string on DELETE and complete, neither of which
+    carries a body by convention.
+
+    **Completing is a route, not a status.** `POST /todos/{id}/complete` finishes
+    a task and, if it repeats, opens its next occurrence and moves the schedule
+    onto it. Setting `status` to `completed` through PUT is refused, because an
+    ordinary update does neither of those things.
+
+    **Only completing releases what waits.** Archiving or deleting a blocker
+    leaves its dependents blocked, because shelving work is not doing it.
+
+servers:
+  - url: /api
+    description: Same origin as the interface
+
+tags:
+  - name: Tasks
+  - name: Dependencies
+  - name: History
+
+paths:
+  /todos:
+    get:
+      tags: [Tasks]
+      summary: List tasks
+      description: |
+        Keyset paginated. Read `nextCursor` from the response and send it back as
+        `cursor` for the following page; an absent `nextCursor` means the last
+        page. A cursor is only valid for the sort it was issued under and is
+        refused against any other.
+      parameters:
+        - { name: sort, in: query, schema: { type: string, enum: [created, due, priority, status, name], default: created } }
+        - { name: dir, in: query, schema: { type: string, enum: [asc, desc], default: desc } }
+        - { name: cursor, in: query, schema: { type: string }, description: From a previous response }
+        - name: status
+          in: query
+          description: Repeatable
+          schema: { type: array, items: { $ref: "#/components/schemas/Status" } }
+        - name: priority
+          in: query
+          description: Repeatable
+          schema: { type: array, items: { $ref: "#/components/schemas/Priority" } }
+        - { name: dueFrom, in: query, schema: { type: string, format: date-time } }
+        - { name: dueTo, in: query, schema: { type: string, format: date-time } }
+        - name: blocked
+          in: query
+          description: Absent means either, which is not the same as false
+          schema: { type: string, enum: ["true", "false"] }
+        - { name: recurring, in: query, schema: { type: string, enum: ["true", "false"] } }
+        - name: overdue
+          in: query
+          description: Past due and neither completed nor archived
+          schema: { type: string, enum: ["true"] }
+        - { name: name, in: query, description: Matched anywhere in the name, three characters or more, schema: { type: string } }
+      responses:
+        "200":
+          description: A page of tasks
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/Task" } }
+                  nextCursor: { type: string }
+        "400": { $ref: "#/components/responses/Invalid" }
+
+    post:
+      tags: [Tasks]
+      summary: Create a task
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TaskInput" }
+      responses:
+        "201":
+          description: The task as stored
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Task" }
+        "400": { $ref: "#/components/responses/Invalid" }
+
+  /todos/search:
+    get:
+      tags: [Tasks]
+      summary: Find tasks by name
+      description: |
+        Matched anywhere in the name rather than by prefix. Fewer than three
+        characters returns nothing rather than most of the table.
+      parameters:
+        - { name: q, in: query, required: true, schema: { type: string } }
+        - name: exclude
+          in: query
+          description: Leave a task out, so it cannot be offered as its own dependency
+          schema: { type: integer, format: int64 }
+      responses:
+        "200":
+          description: At most ten matches
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/Task" } }
+
+  /todos/counts:
+    get:
+      tags: [Tasks]
+      summary: Totals for every view
+      description: |
+        The four statuses partition the live tasks and sum to `all`. Overdue,
+        blocked and recurring cut across them and overlap each other. `trash` is
+        not part of `all`.
+      responses:
+        "200":
+          description: One total per view
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Counts" }
+
+  /todos/trash:
+    get:
+      tags: [Tasks]
+      summary: List deleted tasks
+      description: Most recently deleted first.
+      responses:
+        "200":
+          description: Deleted tasks
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/Task" } }
+
+  /todos/{id}:
+    parameters:
+      - $ref: "#/components/parameters/TaskID"
+    get:
+      tags: [Tasks]
+      summary: Read one task
+      responses:
+        "200":
+          description: The task
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Task" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+    put:
+      tags: [Tasks]
+      summary: Update a task
+      description: |
+        Send the `version` you last read. Moving a blocked task to `in_progress`
+        is refused, and so is moving it to `completed`: a gate you can walk
+        around by choosing the further destination is not a gate.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/TaskInput"
+                - type: object
+                  required: [version]
+                  properties:
+                    version: { type: integer, description: The version you last read }
+      responses:
+        "200":
+          description: The task as stored
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Task" }
+        "400": { $ref: "#/components/responses/Invalid" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+    delete:
+      tags: [Tasks]
+      summary: Delete a task
+      description: |
+        Recoverable. The row and its dependency links stay, so restoring puts the
+        chain back exactly rather than approximately, and anything waiting on
+        this task stays blocked.
+      parameters:
+        - $ref: "#/components/parameters/Version"
+      responses:
+        "204": { description: Deleted }
+        "400": { $ref: "#/components/responses/Invalid" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /todos/{id}/restore:
+    parameters:
+      - $ref: "#/components/parameters/TaskID"
+    post:
+      tags: [Tasks]
+      summary: Restore a deleted task
+      description: No version, because nothing can edit a task while it is in the trash.
+      responses:
+        "200":
+          description: The restored task
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Task" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /todos/{id}/complete:
+    parameters:
+      - $ref: "#/components/parameters/TaskID"
+    post:
+      tags: [Tasks]
+      summary: Complete a task
+      description: |
+        Finishes the task and, if it repeats, opens the next occurrence in the
+        same transaction and hands the schedule to it, so a series always has
+        exactly one live occurrence. The next date is counted from the stored
+        anchor rather than from this occurrence, which is what lets a task
+        anchored to the 31st return to the 31st after a short month.
+
+        Repeating the same request with the same version is refused, so a double
+        click cannot spawn twice.
+      parameters:
+        - $ref: "#/components/parameters/Version"
+      responses:
+        "200":
+          description: The completed task, and the occurrence it opened
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [completed, spawned]
+                properties:
+                  completed: { $ref: "#/components/schemas/Task" }
+                  spawned:
+                    oneOf:
+                      - $ref: "#/components/schemas/Task"
+                      - type: "null"
+                    description: Null unless the task repeats
+        "400": { $ref: "#/components/responses/Invalid" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: |
+            Either the version was stale, or the task is blocked by unfinished
+            work. `current` and `blockers` say which.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /todos/{id}/dependencies:
+    parameters:
+      - $ref: "#/components/parameters/TaskID"
+    get:
+      tags: [Dependencies]
+      summary: What a task waits for, and what waits on it
+      responses:
+        "200":
+          description: Both directions
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Chain" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+    post:
+      tags: [Dependencies]
+      summary: Make a task wait for another
+      description: |
+        A link that would close a loop is refused, and the message names the
+        loop. The response is the chain, so no follow-up read is needed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [dependsOnId]
+              properties:
+                dependsOnId: { type: integer, format: int64 }
+      responses:
+        "200":
+          description: The chain after the change
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Chain" }
+        "400": { $ref: "#/components/responses/Invalid" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /todos/{id}/dependencies/{dependsOnId}:
+    parameters:
+      - $ref: "#/components/parameters/TaskID"
+      - { name: dependsOnId, in: path, required: true, schema: { type: integer, format: int64 } }
+    delete:
+      tags: [Dependencies]
+      summary: Remove a dependency
+      responses:
+        "200":
+          description: The chain after the change
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Chain" }
+        "400": { $ref: "#/components/responses/Invalid" }
+
+  /todos/{id}/events:
+    parameters:
+      - $ref: "#/components/parameters/TaskID"
+    get:
+      tags: [History]
+      summary: What has happened to a task
+      description: |
+        Append-only and written inside the transaction of the change it
+        describes, so an event cannot exist for work that rolled back. Names of
+        other tasks are snapshotted into the payload rather than resolved on
+        read, so the log still says what a task was called at the time.
+      responses:
+        "200":
+          description: Oldest first
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/Event" } }
+
+components:
+  parameters:
+    TaskID:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+    Version:
+      name: version
+      in: query
+      required: true
+      description: The version you last read
+      schema: { type: integer }
+
+  responses:
+    Invalid:
+      description: The request was refused; `fields` says which part
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: No such task, or it is in the trash
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Conflict:
+      description: The version was stale; `current` carries the row as it now stands
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    Status:
+      type: string
+      enum: [not_started, in_progress, completed, archived]
+
+    Priority:
+      type: string
+      enum: [low, medium, high]
+
+    RecurUnit:
+      type: string
+      enum: [day, week, month]
+
+    TaskInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 500 }
+        description: { type: string }
+        dueDate:
+          oneOf: [{ type: string, format: date-time }, { type: "null" }]
+        status: { $ref: "#/components/schemas/Status" }
+        priority: { $ref: "#/components/schemas/Priority" }
+        recurUnit:
+          oneOf: [{ $ref: "#/components/schemas/RecurUnit" }, { type: "null" }]
+        recurInterval:
+          oneOf: [{ type: integer, minimum: 1 }, { type: "null" }]
+          description: Every one is daily, weekly or monthly; above one is a custom schedule
+
+    Task:
+      type: object
+      required:
+        [id, name, description, dueDate, status, priority, recurUnit, recurInterval,
+         unmetDeps, version, createdAt, updatedAt]
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
+        description: { type: string }
+        dueDate:
+          oneOf: [{ type: string, format: date-time }, { type: "null" }]
+        status: { $ref: "#/components/schemas/Status" }
+        priority: { $ref: "#/components/schemas/Priority" }
+        recurUnit:
+          oneOf: [{ $ref: "#/components/schemas/RecurUnit" }, { type: "null" }]
+        recurInterval:
+          oneOf: [{ type: integer }, { type: "null" }]
+        unmetDeps:
+          type: integer
+          description: How many of this task's dependencies are not yet completed
+        version: { type: integer, description: Send this back with your next write }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    Link:
+      type: object
+      required: [id, name, status, deleted]
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
+        status: { $ref: "#/components/schemas/Status" }
+        deleted:
+          type: boolean
+          description: A deleted task still blocks what waits on it
+
+    Chain:
+      type: object
+      required: [dependencies, dependents]
+      properties:
+        dependencies: { type: array, items: { $ref: "#/components/schemas/Link" } }
+        dependents: { type: array, items: { $ref: "#/components/schemas/Link" } }
+
+    Counts:
+      type: object
+      required:
+        [all, notStarted, inProgress, completed, archived, overdue, blocked, recurring, trash]
+      properties:
+        all: { type: integer }
+        notStarted: { type: integer }
+        inProgress: { type: integer }
+        completed: { type: integer }
+        archived: { type: integer }
+        overdue: { type: integer }
+        blocked: { type: integer }
+        recurring: { type: integer }
+        trash: { type: integer }
+
+    Event:
+      type: object
+      required: [id, todoId, kind, payload, createdAt]
+      properties:
+        id: { type: integer, format: int64 }
+        todoId: { type: integer, format: int64 }
+        kind:
+          type: string
+          enum:
+            [created, updated, status_changed, completed, spawned, deleted, restored,
+             dependency_added, dependency_removed]
+        payload:
+          type: object
+          description: |
+            Depends on the kind. A status change carries `from` and `to`; a
+            completion of a repeating task also carries `spawned` and
+            `spawnedDueDate`; the occurrence it created carries `from` and
+            `fromName`; a dependency change carries `dependsOn` and
+            `dependsOnName`.
+        createdAt: { type: string, format: date-time }
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string, description: A whole sentence, safe to show a user }
+        fields:
+          type: object
+          additionalProperties: { type: string }
+          description: Which part of the request was refused, and why
+        current:
+          $ref: "#/components/schemas/Task"
+          description: On a version conflict, the row as it now stands
+        blockers:
+          type: array
+          items: { $ref: "#/components/schemas/Link" }
+          description: On a blocked transition, what to go and finish

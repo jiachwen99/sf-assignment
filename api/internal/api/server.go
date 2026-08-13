@@ -3,42 +3,66 @@ package api
 import (
 	"log/slog"
 	"net/http"
+	"sort"
 
 	"github.com/jiachwen99/sf-assignment/api/internal/service"
 )
 
 type Server struct {
-	svc *service.Service
-	log *slog.Logger
-	mux *http.ServeMux
+	svc    *service.Service
+	log    *slog.Logger
+	mux    *http.ServeMux
+	routes []string
 }
 
 // ServeMux carries method and wildcard patterns, so no third-party router.
+//
+// The routes are collected as they are registered rather than listed a second
+// time beside the registrations, because two lists is exactly how they start to
+// disagree. The parity test compares this against the specification.
 func NewServer(svc *service.Service, log *slog.Logger) *Server {
 	s := &Server{svc: svc, log: log, mux: http.NewServeMux()}
 
-	s.mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
+	s.handle("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	s.mux.HandleFunc("GET /api/todos", s.listTodos)
-	s.mux.HandleFunc("POST /api/todos", s.createTodo)
-	s.mux.HandleFunc("GET /api/todos/{id}", s.getTodo)
-	s.mux.HandleFunc("PUT /api/todos/{id}", s.updateTodo)
-	s.mux.HandleFunc("DELETE /api/todos/{id}", s.deleteTodo)
-	s.mux.HandleFunc("POST /api/todos/{id}/complete", s.completeTodo)
 
-	s.mux.HandleFunc("GET /api/todos/search", s.searchTodos)
-	s.mux.HandleFunc("GET /api/todos/counts", s.counts)
-	s.mux.HandleFunc("GET /api/todos/trash", s.listTrash)
-	s.mux.HandleFunc("POST /api/todos/{id}/restore", s.restoreTodo)
-	s.mux.HandleFunc("GET /api/todos/{id}/events", s.todoEvents)
-	s.mux.HandleFunc("GET /api/todos/{id}/dependencies", s.todoDependencies)
-	s.mux.HandleFunc("POST /api/todos/{id}/dependencies", s.addDependency)
-	s.mux.HandleFunc("DELETE /api/todos/{id}/dependencies/{dependsOnId}", s.removeDependency)
+	s.handle("GET /api/todos", s.listTodos)
+	s.handle("POST /api/todos", s.createTodo)
+	s.handle("GET /api/todos/{id}", s.getTodo)
+	s.handle("PUT /api/todos/{id}", s.updateTodo)
+	s.handle("DELETE /api/todos/{id}", s.deleteTodo)
+	s.handle("POST /api/todos/{id}/complete", s.completeTodo)
+
+	s.handle("GET /api/todos/search", s.searchTodos)
+	s.handle("GET /api/todos/counts", s.counts)
+	s.handle("GET /api/todos/trash", s.listTrash)
+	s.handle("POST /api/todos/{id}/restore", s.restoreTodo)
+	s.handle("GET /api/todos/{id}/events", s.todoEvents)
+	s.handle("GET /api/todos/{id}/dependencies", s.todoDependencies)
+	s.handle("POST /api/todos/{id}/dependencies", s.addDependency)
+	s.handle("DELETE /api/todos/{id}/dependencies/{dependsOnId}", s.removeDependency)
+
+	// The specification and the page that renders it describe the API rather
+	// than being part of it, so the parity test skips them by prefix.
+	s.handle("GET /openapi.yaml", s.openAPI)
+	s.handle("GET /docs", s.docs)
 
 	return s
 }
 
+func (s *Server) handle(pattern string, handler http.HandlerFunc) {
+	s.routes = append(s.routes, pattern)
+	s.mux.HandleFunc(pattern, handler)
+}
+
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.mux.ServeHTTP(w, r)
+}
+
+// Routes returns every pattern the server serves, sorted.
+func (s *Server) Routes() []string {
+	out := append([]string(nil), s.routes...)
+	sort.Strings(out)
+	return out
 }
