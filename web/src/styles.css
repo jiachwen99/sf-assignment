@@ -64,16 +64,6 @@
   }
 }
 
-:root {
-  --mantine-font-family: var(--font-sans);
-  --mantine-radius-default: 6px;
-  --mantine-color-body: var(--color-canvas);
-  --mantine-color-text: var(--color-ink);
-  --mantine-color-dimmed: var(--color-ink-soft);
-  --mantine-color-default-border: var(--color-rule-firm);
-  --mantine-color-placeholder: var(--color-ink-faint);
-}
-
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

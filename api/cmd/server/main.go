@@ -9,6 +9,10 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+
+	"github.com/jiachwen99/sf-assignment/api/internal/api"
+	"github.com/jiachwen99/sf-assignment/api/internal/service"
+	"github.com/jiachwen99/sf-assignment/api/internal/store"
 )
 
 func main() {
@@ -20,16 +24,26 @@ func main() {
 }
 
 func run(log *slog.Logger) error {
-	addr := env("ADDR", ":8080")
+	ctx := context.Background()
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
+	addr := env("ADDR", ":8080")
+	dsn := env("DATABASE_URL", "postgres://todo:todo@localhost:5432/todo?sslmode=disable")
+
+	st, err := store.New(ctx, dsn)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+
+	// Applied at startup, so `docker compose up` is the only command needed.
+	if err := st.Migrate(ctx); err != nil {
+		return err
+	}
+	log.Info("migrations applied")
 
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           mux,
+		Handler:           api.NewServer(service.New(st), log),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -51,7 +65,7 @@ func run(log *slog.Logger) error {
 		}
 		return err
 	case <-stop:
-		shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		shutdown, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
 		return srv.Shutdown(shutdown)
 	}
