@@ -89,6 +89,8 @@ Measured by SF-011 and published in the README. At 200,000 rows: p95 under 100ms
 
 If either target cannot be met without revisiting the pagination decision, that is worth saying out loud rather than quietly relaxing the number.
 
+**Measured, in [`05-performance.md`](05-performance.md): 1.6ms and 3.0ms.** Both targets are met by a wide margin, which says more about how conservative they were than about the code. Two things the targets did not cover turned out to be the interesting ones: name search is the only paged query that grows with the table, and the counts query is the only one that scans, going from 6ms to 43ms between the two sizes.
+
 ## Definition of done
 
 - Every requirement is implemented or listed in `03` with a reason.

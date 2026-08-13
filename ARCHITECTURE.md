@@ -2,7 +2,9 @@
 
 Go API, React front end, PostgreSQL. Four layers on the server, and one rule that keeps them honest: dependencies point one way only.
 
-GitHub renders the diagrams below in place. They are also exported as images in SF-31, for viewers that do not.
+GitHub renders the diagrams below in place. SF-017 also exports them as images, for viewers that do not.
+
+The diagrams describe what is built. Real-time updates and authentication are optional and last in the cut ladder, so nothing here shows them until they exist.
 
 ```mermaid
 flowchart TB
@@ -16,17 +18,14 @@ flowchart TB
     svc["service/<br/>transactions and orchestration"]
     dom["domain/<br/>pure rules"]
     store["store/<br/>all SQL"]
-    hub["events/<br/>in-process SSE hub"]
   end
 
   db[("PostgreSQL")]
 
-  ui -->|"HTTP, and an open event stream"| http
+  ui -->|"HTTP"| http
   http --> svc
   svc --> dom
   svc --> store
-  svc --> hub
-  hub -.->|"published after commit"| http
   store --> db
 ```
 
@@ -36,7 +35,9 @@ flowchart TB
 
 `store/` holds every line of SQL and nothing else. If a query is not in this package, it does not exist.
 
-`service/` exists because completing a recurring task is four writes that have to succeed or fail together: set the status, insert the next occurrence, adjust the counters on every dependent, append an event. That orchestration does not belong in a package whose job is SQL, and it does not belong in an HTTP handler.
+`service/` holds the rules that need to read before they write. Validation, so they hold for any caller rather than for one handler. The recurrence anchor, which is set once and then carried, and needs to know whether the task was already recurring. And the refusal to reach Completed through an ordinary update, which needs the current status to compare against.
+
+Transactions stay in `store/`. Completing a recurring task is four writes that have to succeed or fail together: mark it done, open the next occurrence, hand the schedule over, adjust every dependent's counter, and record the events. Lifting that into `service/` would mean passing a `pgx.Tx` upward, which puts the database back in the layer above and gains nothing: a transaction is a database concern.
 
 `api/` is thin. It decodes, validates, calls one service method, and maps the result to a status code. Status codes are decided in exactly one file, so there is one place to look when an endpoint returns the wrong one.
 
@@ -48,8 +49,6 @@ I did not add interfaces. `service` takes a concrete `*store.Store`. An interfac
 erDiagram
   todos ||--o{ todo_dependencies : "depends on"
   todos ||--o{ todo_events : "records"
-  users ||--o{ todo_events : "actor"
-  users ||--o{ sessions : "holds"
 
   todos {
     bigint id PK
@@ -74,12 +73,11 @@ erDiagram
     bigint todo_id FK
     text kind
     jsonb payload
-    bigint actor_id FK "nullable"
     timestamptz created_at
   }
 ```
 
-Five tables. Three of them are obvious. The columns that are not obvious are the ones worth explaining, because each one exists to solve a specific problem.
+Three tables, and two of them are obvious. The columns that are not obvious are the ones worth explaining, because each exists to solve a specific problem.
 
 ### `due_sort`
 
@@ -172,17 +170,24 @@ matches no rows and cannot spawn a duplicate.
 
 Every index here exists for a query, and each one is added in the same commit as the query that needs it.
 
+Every one below is partial on `deleted_at IS NULL`, so the ordinary list never walks trash rows, and every one ends in `id` so the keyset seek and the ordering come out of the same index and no sort node is needed.
+
 | Index | Serves |
 |---|---|
-| `(due_sort, id)` | default sort and its keyset seek, both directions |
-| `(priority, id)`, `(status, id)`, `(name, id)` | the other three sort keys |
-| `(unmet_deps_count, due_sort, id)` | blocked filter composed with the default sort |
-| `(created_at, id)` | sorting by when a task was made |
-| trigram GIN on `name` | substring search, the one query that is not a seek |
-| partial on `deleted_at IS NULL` | keeps the normal list off trash rows |
-| `todo_dependencies(depends_on_id)` | finding what depends on a task, for the archive warning |
+| `todos_live (created_at DESC, id DESC)` | the default sort and its keyset seek |
+| `todos_by_due (due_sort, id)` | sorting by due date, both directions |
+| `todos_by_priority`, `todos_by_status`, `todos_by_name` | the other three sort keys |
+| `todos_blocked`, `todos_unblocked` on `(created_at DESC, id DESC)` | the blocked and unblocked views on the default sort |
+| `todos_recurring (created_at DESC, id DESC)` | the recurring view |
+| `todos_name_trgm`, a trigram GIN | substring search, the one query that is not a seek |
+| `todo_dependencies (depends_on_id)` | what depends on a task, for the warning before deleting a blocker |
+| `todo_events (todo_id, id)` | one task's history in order, the only way it is read |
 
-Seven is more than a schema this size usually carries. The brief asks for four sort keys and for the list not to degrade, and those two requirements together are what buys the extra indexes. Write volume here is nowhere near the point where maintaining them would cost anything.
+Blocked gets two partial indexes rather than one composite leading with `unmet_deps_count`. A composite does serve the filter, but blocked is the range predicate `> 0`, and a range on the leading column does not preserve ordering on the columns after it: the planner uses the index and then adds a sort, which is what keyset pagination exists to avoid. Moving the predicate into the index leaves `(created_at, id)` as the whole key, so the ordering comes free and each index holds only the rows it serves.
+
+Nine indexes on `todos` is more than a schema this size usually carries. The brief asks for four sort keys and for the list not to degrade at ten thousand items, and those two requirements together are what buys them. Write volume here is nowhere near the point where maintaining them would cost anything.
+
+[`docs/05-performance.md`](docs/05-performance.md) has the measurements, including the query plans at two hundred thousand rows and the two places these indexes stop helping.
 
 Name filtering is the exception to all of this. Substring matching needs a leading wildcard, which no btree index can serve, so it uses a trigram GIN index and resolves as a bitmap scan followed by a sort rather than a seek. That is a real cost and it is stated rather than hidden. It is paid because prefix matching, which would have kept the seek, is not what anyone means by search. The client requires three characters before it queries, so the shortest and least selective terms never reach the database.
 
