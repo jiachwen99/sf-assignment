@@ -1,0 +1,46 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: todo
+      POSTGRES_PASSWORD: todo
+      POSTGRES_DB: todo
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U todo -d todo"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+    volumes:
+      - db-data:/var/lib/postgresql/data
+
+  api:
+    build: ./api
+    environment:
+      ADDR: ":8080"
+      DATABASE_URL: "postgres://todo:todo@db:5432/todo?sslmode=disable"
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    image: oven/bun:1-alpine
+    working_dir: /app
+    environment:
+      API_URL: "http://api:8080"
+      VITE_POLL: "1"
+    command: sh -c "bun install && bun run dev"
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./web:/app
+      - web-modules:/app/node_modules
+    depends_on:
+      - api
+
+volumes:
+  db-data:
+  web-modules:

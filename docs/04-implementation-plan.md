@@ -73,12 +73,12 @@ SF-000, SF-016 and SF-018 are never cut. A submission without its decision log f
 
 | Gate | Command |
 |---|---|
-| Lint | `golangci-lint run` in `api/`, `npm run lint` in `web/` |
+| Lint | `golangci-lint run` in `api/`, `bun run lint` in `web/` |
 | Domain unit tests | `go test ./internal/domain/...` |
 | Integration tests | `go test ./internal/store/... ./internal/service/... ./internal/api/...` |
 | Counter property test | `go test -run TestCounterInvariant ./internal/store/...` |
 | Query plans | `go test -run TestListQueryPlan ./internal/store/...` |
-| End to end | `npx playwright test` in `web/` |
+| End to end | `bun run test:e2e` in `web/` |
 | Stack smoke | `docker compose up` from a clean clone |
 
 Integration tests start their own PostgreSQL, so nothing needs to be running first. CI runs every gate on push and seeds 10,000 rows for the end-to-end run. Seeding 200,000 on every push would dominate the pipeline for no extra signal, so that measurement is taken locally.

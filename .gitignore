@@ -1,0 +1,19 @@
+node_modules/
+dist/
+.env
+.env.local
+
+api/server
+api/server.exe
+api/seed
+api/seed.exe
+api/tmp/
+
+web/test-results/
+web/playwright-report/
+*.tsbuildinfo
+
+# Stray screenshots stay out; the ones the documents point at do not.
+*.png
+!docs/images/*.png
+*.pdf
