@@ -81,8 +81,10 @@ func (s *Store) AddDependency(ctx context.Context, todoID, dependsOnID int64) er
 			return nil // Already there, so the count must not move.
 		}
 
-		_, err = tx.Exec(ctx, bumpForNewEdge, todoID, dependsOnID)
-		return err
+		if _, err := tx.Exec(ctx, bumpForNewEdge, todoID, dependsOnID); err != nil {
+			return err
+		}
+		return recordEdge(ctx, tx, todoID, dependsOnID, EventDepAdded)
 	})
 
 	return wrap("add dependency", err)
@@ -106,8 +108,10 @@ func (s *Store) RemoveDependency(ctx context.Context, todoID, dependsOnID int64)
 		if tag.RowsAffected() == 0 {
 			return nil
 		}
-		_, err = tx.Exec(ctx, dropForRemovedEdge, todoID, dependsOnID)
-		return err
+		if _, err := tx.Exec(ctx, dropForRemovedEdge, todoID, dependsOnID); err != nil {
+			return err
+		}
+		return recordEdge(ctx, tx, todoID, dependsOnID, EventDepRemove)
 	})
 	return wrap("remove dependency", err)
 }

@@ -191,6 +191,10 @@ func (s *Service) Restore(ctx context.Context, id int64) (domain.Todo, error) {
 	return s.store.RestoreTodo(ctx, id)
 }
 
+func (s *Service) Events(ctx context.Context, id int64) ([]store.Event, error) {
+	return s.store.Events(ctx, id)
+}
+
 func (s *Service) Counts(ctx context.Context) (store.Counts, error) {
 	return s.store.Counts(ctx)
 }

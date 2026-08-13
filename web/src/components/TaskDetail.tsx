@@ -16,6 +16,7 @@ import { priorityOptions, statusOptions } from '../lib/format'
 import type { Priority, Status, Todo, TodoInput } from '../types'
 
 import { DependencyChain } from './DependencyChain'
+import { TaskHistory } from './TaskHistory'
 import { DependencyPicker } from './detail/DependencyPicker'
 import { RejectionNotice, type Rejection } from './detail/RejectionNotice'
 import { RepeatsField } from './detail/RepeatsField'
@@ -282,6 +283,12 @@ export function TaskDetail({
           {errors.dependsOnId && (
             <p className="mt-2 text-[12px] text-late">{errors.dependsOnId}</p>
           )}
+        </Section>
+      )}
+
+      {base && (
+        <Section title="History">
+          <TaskHistory todoId={base.id} onOpenTask={onOpenTask} />
         </Section>
       )}
 

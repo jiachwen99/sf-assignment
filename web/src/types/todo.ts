@@ -27,6 +27,14 @@ export type Blocker = {
   deleted: boolean
 }
 
+export type TaskEvent = {
+  id: number
+  todoId: number
+  kind: string
+  payload: Record<string, unknown> | null
+  createdAt: string
+}
+
 export type DependencyView = {
   dependencies: Blocker[]
   dependents: Blocker[]

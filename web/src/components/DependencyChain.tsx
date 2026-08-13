@@ -30,13 +30,19 @@ function Node({
   return (
     <div className="group flex items-center gap-2.5">
       <span className={`size-1.5 shrink-0 rounded-full ${dotFor(item.status)}`} aria-hidden />
-      <button
-        type="button"
-        onClick={() => onOpen(item.id)}
-        className="min-w-0 flex-1 truncate text-left text-[13px] text-ink hover:underline"
-      >
-        {item.name}
-      </button>
+      {/* A deleted task has nothing to open, so it is not offered as a link
+          rather than being offered as one that fails. */}
+      {item.deleted ? (
+        <span className="min-w-0 flex-1 truncate text-[13px] text-ink-faint">{item.name}</span>
+      ) : (
+        <button
+          type="button"
+          onClick={() => onOpen(item.id)}
+          className="min-w-0 flex-1 truncate text-left text-[13px] text-ink hover:underline"
+        >
+          {item.name}
+        </button>
+      )}
       <span className="shrink-0 text-[11px] text-ink-faint">
         {item.deleted
           ? 'deleted'

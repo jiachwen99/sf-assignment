@@ -77,8 +77,12 @@ func (s *Store) Complete(ctx context.Context, id int64, version int, now time.Ti
 			return err
 		}
 
+		// The completion event is written after the spawn so it can name what it
+		// created. Both ends then read as links, and either opens the other.
+		payload := statusPayload(was, domain.Completed)
+
 		if completed.RecurUnit == nil || completed.RecurEvery == nil {
-			return nil
+			return record(ctx, tx, id, EventCompleted, payload)
 		}
 
 		// The later of now and this occurrence's own due date. Using now alone
@@ -115,7 +119,16 @@ func (s *Store) Complete(ctx context.Context, id int64, version int, now time.Ti
 			return err
 		}
 		out.Completed = handedOver
-		return nil
+
+		if err := record(ctx, tx, spawned.ID, EventSpawned, map[string]any{
+			"from": id, "fromName": completed.Name, "dueDate": spawned.DueDate,
+		}); err != nil {
+			return err
+		}
+
+		payload["spawned"] = spawned.ID
+		payload["spawnedDueDate"] = spawned.DueDate
+		return record(ctx, tx, id, EventCompleted, payload)
 	})
 
 	if errors.Is(err, errStale) {

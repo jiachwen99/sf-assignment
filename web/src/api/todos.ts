@@ -1,7 +1,15 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { request } from './client'
 import { COUNTS_STALE_TIME, MIN_SEARCH, queryKeys } from '../constants'
-import type { Counts, DependencyView, ListQuery, Todo, TodoInput, TodoPage } from '../types'
+import type {
+  Counts,
+  DependencyView,
+  ListQuery,
+  TaskEvent,
+  Todo,
+  TodoInput,
+  TodoPage,
+} from '../types'
 
 // Turns the list state into a query string, dropping anything unset so the URL
 // and the request both stay readable.
@@ -36,9 +44,9 @@ function useTodoMutation<T>(fn: (v: T) => Promise<unknown>) {
   return useMutation({
     mutationFn: fn,
     onSuccess: () => {
+      // ['todos'] by prefix, which takes the lists, the chains and the
+      // histories with it. The trash and the counts are separate trees.
       qc.invalidateQueries({ queryKey: queryKeys.todos })
-      // Deleting moves a task into the trash, so that list is stale too, and
-      // any write can move a total in the rail.
       qc.invalidateQueries({ queryKey: queryKeys.trash })
       qc.invalidateQueries({ queryKey: queryKeys.counts })
     },
@@ -74,6 +82,13 @@ export function useRestoreTodo() {
       qc.invalidateQueries({ queryKey: queryKeys.todos })
       qc.invalidateQueries({ queryKey: queryKeys.trash })
     },
+  })
+}
+
+export function useTaskEvents(id: number) {
+  return useQuery({
+    queryKey: queryKeys.events(id),
+    queryFn: () => request<{ items: TaskEvent[] }>(`/todos/${id}/events`).then((r) => r.items),
   })
 }
 

@@ -21,13 +21,20 @@ export const MIN_SEARCH = 3
 // rail is not visibly wrong.
 export const COUNTS_STALE_TIME = 30_000
 
+/*
+ * Keys are hierarchical on purpose.
+ *
+ * Invalidation in TanStack Query matches by prefix, so invalidating ['todos']
+ * reaches every list, chain and history underneath it. A write therefore needs
+ * one invalidation rather than one per thing it could have changed, and a new
+ * per-task query is covered the moment it is added.
+ */
 export const queryKeys = {
-  // Every list state is its own cache entry, so changing a filter or a sort
-  // starts a fresh page rather than appending to somebody else's.
   todos: ['todos'],
   list: (query: object) => ['todos', 'list', query],
   counts: ['counts'],
   trash: ['trash'],
   dependencies: (id: number) => ['todos', id, 'dependencies'],
+  events: (id: number) => ['todos', id, 'events'],
   search: (term: string, excludeId: number) => ['todos', 'search', term, excludeId],
 }

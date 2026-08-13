@@ -186,6 +186,23 @@ func (s *Server) deleteTodo(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (s *Server) todoEvents(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	events, err := s.svc.Events(r.Context(), id)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if events == nil {
+		events = []store.Event{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": events})
+}
+
 func (s *Server) counts(w http.ResponseWriter, r *http.Request) {
 	counts, err := s.svc.Counts(r.Context())
 	if err != nil {

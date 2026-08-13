@@ -6,6 +6,7 @@ export type {
   TodoInput,
   Blocker,
   DependencyView,
+  TaskEvent,
 } from './todo'
 
 export type { SortField, SortDir, ListQuery, TodoPage, Counts, ViewId } from './list'

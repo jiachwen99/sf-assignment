@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 
+import { request } from './api/client'
 import { useCounts, useRestoreTodo, useTodos, useTrash } from './api/todos'
 import { EmptyState } from './components/EmptyState'
 import { FilterRow } from './components/FilterRow'
@@ -38,12 +39,15 @@ export function App() {
     window.history.replaceState(null, '', urlFromQuery(query))
   }, [query])
 
-  // The list is the source of truth, so a selected task follows its own edits
-  // instead of holding the copy that was clicked.
+  // The list is the source of truth where it has an answer, so a selected task
+  // follows its own edits rather than holding the copy that was clicked. It
+  // falls back to the selection itself for a task the current view does not
+  // contain, which is how a link out of the chain or the history can open
+  // something the filter excludes.
   const open =
     selection === 'new' || selection === null
       ? selection
-      : (todos?.find((t) => t.id === selection.id) ?? null)
+      : (todos?.find((t) => t.id === selection.id) ?? selection)
 
   const showTrash = (on: boolean) => {
     setInTrash(on)
@@ -147,11 +151,13 @@ export function App() {
           <TaskDetail
             todo={open}
             onClose={() => setSelection(null)}
-            // The chain is also how you navigate it: clicking a node opens that
-            // task in the same panel. A deleted node has nothing to open.
-            onOpenTask={(id) => {
-              const next = todos?.find((t) => t.id === id)
-              if (next) setSelection(next)
+            // The chain and the history are also how you navigate, and both can
+            // point outside the current view: a completed predecessor is not in
+            // the recurring list. Fetching it is the difference between a link
+            // and a link that does nothing.
+            onOpenTask={async (id) => {
+              const known = todos?.find((t) => t.id === id)
+              setSelection(known ?? (await request<Todo>(`/todos/${id}`)))
             }}
           />
         </div>

@@ -48,13 +48,22 @@ VALUES ($1, $2, $3::timestamptz, COALESCE($3::timestamptz, 'infinity'), $4, $5,
 RETURNING ` + todoColumns
 
 func (s *Store) CreateTodo(ctx context.Context, n NewTodo) (domain.Todo, error) {
-	rows, err := s.pool.Query(ctx, insertTodo,
-		n.Name, n.Description, n.DueDate, n.Status, n.Priority,
-		n.RecurUnit, n.RecurEvery, n.RecurAnchor)
-	if err != nil {
-		return domain.Todo{}, wrap("create todo", err)
-	}
-	out, err := pgx.CollectExactlyOneRow(rows, pgx.RowToStructByName[domain.Todo])
+	var out domain.Todo
+
+	err := s.tx(ctx, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, insertTodo,
+			n.Name, n.Description, n.DueDate, n.Status, n.Priority,
+			n.RecurUnit, n.RecurEvery, n.RecurAnchor)
+		if err != nil {
+			return err
+		}
+		out, err = pgx.CollectExactlyOneRow(rows, pgx.RowToStructByName[domain.Todo])
+		if err != nil {
+			return err
+		}
+		return record(ctx, tx, out.ID, EventCreated, map[string]any{})
+	})
+
 	return out, wrap("create todo", err)
 }
 
@@ -120,7 +129,16 @@ func (s *Store) UpdateTodo(ctx context.Context, u TodoUpdate) (domain.Todo, erro
 			return err
 		}
 
-		return adjustDependents(ctx, tx, u.ID, was, u.Status)
+		if err := adjustDependents(ctx, tx, u.ID, was, u.Status); err != nil {
+			return err
+		}
+
+		// A status change is the thing people look for in a history, so it is
+		// its own kind rather than one "updated" among many.
+		if was != u.Status {
+			return record(ctx, tx, u.ID, EventStatus, statusPayload(was, u.Status))
+		}
+		return record(ctx, tx, u.ID, EventUpdated, map[string]any{})
 	})
 
 	if errors.Is(err, errStale) {
@@ -174,11 +192,23 @@ UPDATE todos SET deleted_at = now(), version = version + 1
 WHERE id = $1 AND version = $2 AND deleted_at IS NULL`
 
 func (s *Store) DeleteTodo(ctx context.Context, id int64, version int) error {
-	tag, err := s.pool.Exec(ctx, softDeleteTodo, id, version)
+	var affected int64
+
+	err := s.tx(ctx, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, softDeleteTodo, id, version)
+		if err != nil {
+			return err
+		}
+		affected = tag.RowsAffected()
+		if affected == 0 {
+			return nil
+		}
+		return record(ctx, tx, id, EventDeleted, map[string]any{})
+	})
 	if err != nil {
 		return wrap("delete todo", err)
 	}
-	if tag.RowsAffected() == 0 {
+	if affected == 0 {
 		// conflictOrNotFound reads through Todo, which is live-only, so an
 		// already-deleted row reports as gone rather than as a conflict.
 		return s.conflictOrNotFound(ctx, id)
@@ -194,14 +224,23 @@ RETURNING ` + todoColumns
 // No version guard. Nothing can edit a task while it is in the trash, so the
 // copy you are restoring is the only copy there has been.
 func (s *Store) RestoreTodo(ctx context.Context, id int64) (domain.Todo, error) {
-	rows, err := s.pool.Query(ctx, restoreTodo, id)
-	if err != nil {
-		return domain.Todo{}, wrap("restore todo", err)
-	}
-	out, err := pgx.CollectExactlyOneRow(rows, pgx.RowToStructByName[domain.Todo])
-	if errors.Is(err, pgx.ErrNoRows) {
-		return domain.Todo{}, domain.ErrNotFound
-	}
+	var out domain.Todo
+
+	err := s.tx(ctx, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, restoreTodo, id)
+		if err != nil {
+			return err
+		}
+		out, err = pgx.CollectExactlyOneRow(rows, pgx.RowToStructByName[domain.Todo])
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+		return record(ctx, tx, id, EventRestored, map[string]any{})
+	})
+
 	return out, wrap("restore todo", err)
 }
 
