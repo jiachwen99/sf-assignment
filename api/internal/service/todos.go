@@ -23,6 +23,8 @@ type TodoInput struct {
 	DueDate     *time.Time
 	Status      domain.Status
 	Priority    domain.Priority
+	RecurUnit   *domain.RecurUnit
+	RecurEvery  *int
 }
 
 // Validation lives here rather than at the HTTP edge, so the rules hold for
@@ -51,6 +53,17 @@ func (in *TodoInput) normaliseAndValidate() error {
 		fields["priority"] = "Priority must be one of low, medium, high"
 	}
 
+	if in.RecurUnit != nil {
+		if !in.RecurUnit.Valid() {
+			fields["recurUnit"] = "Repeat must be by day, week or month"
+		}
+		if in.RecurEvery == nil || *in.RecurEvery < 1 {
+			fields["recurInterval"] = "Repeat interval must be at least 1"
+		}
+	} else if in.RecurEvery != nil {
+		fields["recurUnit"] = "Repeat needs a unit when an interval is given"
+	}
+
 	if len(fields) > 0 {
 		return &domain.ValidationError{Fields: fields}
 	}
@@ -67,6 +80,9 @@ func (s *Service) Create(ctx context.Context, in TodoInput) (domain.Todo, error)
 		DueDate:     in.DueDate,
 		Status:      in.Status,
 		Priority:    in.Priority,
+		RecurUnit:   in.RecurUnit,
+		RecurEvery:  in.RecurEvery,
+		RecurAnchor: anchorFor(in),
 	})
 }
 
@@ -82,6 +98,31 @@ func (s *Service) Update(ctx context.Context, id int64, version int, in TodoInpu
 	if err := in.normaliseAndValidate(); err != nil {
 		return domain.Todo{}, err
 	}
+	existing, err := s.store.Todo(ctx, id)
+	if err != nil {
+		return domain.Todo{}, err
+	}
+
+	// Completion is not a field you can set. It opens the next occurrence of a
+	// repeating task and moves the schedule onto it, and an ordinary update
+	// does neither, so allowing it here would leave a finished row still
+	// carrying a schedule that nothing will ever act on.
+	if in.Status == domain.Completed && existing.Status != domain.Completed {
+		return domain.Todo{}, domain.Invalid("status",
+			"Use the complete action to finish a task, so a repeating one opens its next occurrence")
+	}
+
+	// Set once, when the task first becomes recurring, then carried. Deriving
+	// it from the current due date on every edit would undo the clamp: a task
+	// showing 28 February would re-anchor to the 28th and never see the 31st
+	// again.
+	anchor := existing.RecurAnchor
+	if in.RecurUnit == nil {
+		anchor = nil
+	} else if anchor == nil {
+		anchor = anchorFor(in)
+	}
+
 	return s.store.UpdateTodo(ctx, store.TodoUpdate{
 		ID:          id,
 		Version:     version,
@@ -90,7 +131,24 @@ func (s *Service) Update(ctx context.Context, id int64, version int, in TodoInpu
 		DueDate:     in.DueDate,
 		Status:      in.Status,
 		Priority:    in.Priority,
+		RecurUnit:   in.RecurUnit,
+		RecurEvery:  in.RecurEvery,
+		RecurAnchor: anchor,
 	})
+}
+
+// A schedule with no date has nothing to count from. The task still repeats in
+// the sense that the field is set; it just cannot produce an occurrence until
+// somebody gives it a due date.
+func anchorFor(in TodoInput) *time.Time {
+	if in.RecurUnit == nil {
+		return nil
+	}
+	return in.DueDate
+}
+
+func (s *Service) Complete(ctx context.Context, id int64, version int) (store.CompleteResult, error) {
+	return s.store.Complete(ctx, id, version, time.Now().UTC())
 }
 
 func (s *Service) Delete(ctx context.Context, id int64, version int) error {

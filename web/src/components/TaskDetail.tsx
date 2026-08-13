@@ -1,8 +1,24 @@
 import { useEffect, useState } from 'react'
+
 import { ApiError } from '../api/client'
-import { useCreateTodo, useDeleteTodo, useRefreshTodos, useUpdateTodo } from '../api/todos'
+import {
+  useCompleteTodo,
+  useCreateTodo,
+  useDeleteTodo,
+  useRefreshTodos,
+  useUpdateTodo,
+} from '../api/todos'
+import { toLocalInput } from '../lib/dates'
 import { priorityOptions, statusOptions } from '../lib/format'
-import type { Todo, TodoInput } from '../types'
+import type { Priority, Status, Todo, TodoInput } from '../types'
+
+import { RejectionNotice, type Rejection } from './detail/RejectionNotice'
+import { RepeatsField } from './detail/RepeatsField'
+import { TaskNameField } from './detail/TaskNameField'
+import { Button, IconButton } from './ui/Button'
+import { Field, Input, Select, TextArea } from './ui/Control'
+import { CloseIcon } from './ui/icons'
+import { Section } from './ui/Notice'
 
 /*
  * A panel beside the list, not a drawer over it.
@@ -10,12 +26,11 @@ import type { Todo, TodoInput } from '../types'
  * Inspecting a task usually means comparing it to its neighbours, and both need
  * the list to stay on screen. It only becomes an overlay when the viewport is
  * too narrow to hold both.
+ *
+ * This file holds the state and the order of the sections. Each section is its
+ * own component next door, because a panel that owns a form, a rejected write
+ * and a schedule is three screens' worth of decisions in one scroll.
  */
-
-// The two ways the server can refuse a write on a row you were looking at. The
-// store goes to the trouble of telling them apart, so the panel does too: one
-// has a version to move to, the other has nothing left to edit.
-type Rejection = { kind: 'conflict'; current: Todo } | { kind: 'gone' }
 
 const blank: TodoInput = {
   name: '',
@@ -23,11 +38,9 @@ const blank: TodoInput = {
   dueDate: null,
   status: 'not_started',
   priority: 'medium',
+  recurUnit: null,
+  recurInterval: null,
 }
-
-// One control vocabulary, so a select and an input line up on the same row.
-const control =
-  'h-8 w-full rounded-md border border-rule-firm bg-canvas px-2 text-[13px] text-ink transition-colors hover:border-ink-faint focus:border-action focus:outline-none'
 
 const toInput = (t: Todo): TodoInput => ({
   name: t.name,
@@ -35,15 +48,9 @@ const toInput = (t: Todo): TodoInput => ({
   dueDate: t.dueDate,
   status: t.status,
   priority: t.priority,
+  recurUnit: t.recurUnit,
+  recurInterval: t.recurInterval,
 })
-
-// datetime-local wants "YYYY-MM-DDTHH:mm" in local time, not an ISO instant.
-const toLocalInput = (iso: string | null) => {
-  if (!iso) return ''
-  const d = new Date(iso)
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
 
 export function TaskDetail({ todo, onClose }: { todo: Todo | 'new'; onClose: () => void }) {
   const isNew = todo === 'new'
@@ -60,6 +67,7 @@ export function TaskDetail({ todo, onClose }: { todo: Todo | 'new'; onClose: () 
   const create = useCreateTodo()
   const update = useUpdateTodo()
   const remove = useDeleteTodo()
+  const complete = useCompleteTodo()
   const refreshTodos = useRefreshTodos()
 
   // Keyed on which task is open, not on the object. The list refetches after
@@ -73,9 +81,18 @@ export function TaskDetail({ todo, onClose }: { todo: Todo | 'new'; onClose: () 
     setRejected(null)
   }, [openID])
 
+  const patch = (fields: Partial<TodoInput>) => setForm((f) => ({ ...f, ...fields }))
+
+  // Completed is missing from the select until the task is, because finishing a
+  // task is the Complete action below: it opens the next occurrence of a
+  // repeating one, which setting a field cannot do. Reopening is an ordinary
+  // edit, so the option stays visible afterwards.
+  const statusChoices =
+    form.status === 'completed' ? statusOptions : statusOptions.filter((o) => o.value !== 'completed')
+
   // A rejected write is not a failure to report and move on from: the edits are
   // still in the form and still worth something, so the panel stays as it is
-  // and the banner offers whatever choice is left.
+  // and the notice offers whatever choice is left.
   const handle = (err: unknown) => {
     if (!(err instanceof ApiError)) throw err
     if (err.fields) return setErrors(err.fields)
@@ -105,168 +122,127 @@ export function TaskDetail({ todo, onClose }: { todo: Todo | 'new'; onClose: () 
     }
   }
 
+  const finish = async () => {
+    if (!base) return
+    try {
+      await complete.mutateAsync({ id: base.id, version: base.version })
+      onClose()
+    } catch (err) {
+      handle(err)
+    }
+  }
+
+  const busy = create.isPending || update.isPending || remove.isPending || complete.isPending
+
   return (
     <aside
       aria-label={isNew ? 'New task' : 'Task detail'}
       className="flex h-full w-full flex-col overflow-y-auto border-l border-rule bg-canvas"
     >
       <header className="sticky top-0 z-10 flex items-start gap-2 border-b border-rule bg-canvas px-4 py-3">
-        {/* A textarea rather than an input: an input cannot wrap, so a long
-            name is cut off mid-word. */}
-        <textarea
-          rows={1}
-          value={form.name}
-          onChange={(e) => setForm({ ...form, name: e.currentTarget.value })}
-          onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()}
-          placeholder="Task name"
-          aria-label="Task name"
-          data-testid="todo-name"
-          className="min-w-0 flex-1 resize-none border-0 bg-transparent p-0 text-[15px] leading-snug font-medium text-ink outline-none placeholder:text-ink-faint"
-        />
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close panel"
-          className="-mr-1 grid size-7 shrink-0 place-items-center rounded-md text-ink-faint transition-colors hover:bg-sunk hover:text-ink"
-        >
-          <svg viewBox="0 0 14 14" className="size-3.5" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
-            <path d="m3 3 8 8M11 3l-8 8" strokeLinecap="round" />
-          </svg>
-        </button>
+        <TaskNameField form={form} onChange={(name) => patch({ name })} />
+        <IconButton onClick={onClose} aria-label="Close panel" className="-mr-1">
+          <CloseIcon />
+        </IconButton>
       </header>
 
       {errors.name && <p className="px-4 pt-2 text-[12px] text-late">{errors.name}</p>}
 
       {rejected && (
-        <div
-          data-testid="conflict-banner"
-          className="mx-4 mt-3 rounded-md border border-halt-edge bg-halt-wash p-3"
-        >
-          {rejected.kind === 'conflict' ? (
-            <>
-              <p className="text-[13px] font-medium text-ink">Someone else changed this task</p>
-              <p className="mt-1 text-[12px] text-ink-soft">
-                Your edit was not saved. It now reads &ldquo;{rejected.current.name}&rdquo;.
-              </p>
-              {/* Load, not merge. Guessing which side of a field to keep is how
-                  you lose the half nobody looked at. */}
-              <button
-                type="button"
-                data-testid="conflict-reload"
-                onClick={() => {
-                  setBase(rejected.current)
-                  setForm(toInput(rejected.current))
-                  setRejected(null)
-                }}
-                className="mt-2 rounded-md bg-ink px-2.5 py-1 text-[12px] font-medium text-canvas transition-colors hover:bg-ink-soft"
-              >
-                Load the current version
-              </button>
-            </>
-          ) : (
-            <>
-              <p className="text-[13px] font-medium text-ink">This task has been deleted</p>
-              <p className="mt-1 text-[12px] text-ink-soft">
-                Someone else removed it, so your edit has nowhere to go.
-              </p>
-              <button
-                type="button"
-                data-testid="conflict-close"
-                onClick={() => {
-                  refreshTodos()
-                  onClose()
-                }}
-                className="mt-2 rounded-md bg-ink px-2.5 py-1 text-[12px] font-medium text-canvas transition-colors hover:bg-ink-soft"
-              >
-                Close
-              </button>
-            </>
-          )}
-        </div>
+        <RejectionNotice
+          rejection={rejected}
+          onLoad={(current) => {
+            setBase(current)
+            setForm(toInput(current))
+            setRejected(null)
+          }}
+          onClose={() => {
+            refreshTodos()
+            onClose()
+          }}
+        />
       )}
 
-      <section className="border-t border-rule px-4 py-3.5">
-        <h3 className="mb-2.5 text-[11px] font-medium tracking-wide text-ink-soft uppercase">Details</h3>
-
-        <textarea
-          value={form.description}
-          onChange={(e) => setForm({ ...form, description: e.currentTarget.value })}
-          placeholder="Add a description"
-          aria-label="Description"
-          rows={3}
-          className="w-full resize-y rounded-md border border-rule-firm bg-canvas p-2 text-[13px] text-ink transition-colors hover:border-ink-faint focus:border-action focus:outline-none placeholder:text-ink-faint"
-        />
-
-        <div className="mt-3 grid grid-cols-2 gap-3">
-          <label className="block">
-            <span className="mb-1 block text-[12px] text-ink-soft">Status</span>
-            <select
-              value={form.status}
-              onChange={(e) => setForm({ ...form, status: e.currentTarget.value as TodoInput['status'] })}
-              data-testid="todo-status"
-              className={control}
-            >
-              {statusOptions.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="block">
-            <span className="mb-1 block text-[12px] text-ink-soft">Priority</span>
-            <select
-              value={form.priority}
-              onChange={(e) => setForm({ ...form, priority: e.currentTarget.value as TodoInput['priority'] })}
-              data-testid="todo-priority"
-              className={control}
-            >
-              {priorityOptions.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-
-        <label className="mt-3 block">
-          <span className="mb-1 block text-[12px] text-ink-soft">Due</span>
-          <input
-            type="datetime-local"
-            value={toLocalInput(form.dueDate)}
-            onChange={(e) =>
-              setForm({
-                ...form,
-                dueDate: e.currentTarget.value ? new Date(e.currentTarget.value).toISOString() : null,
-              })
-            }
-            data-testid="todo-due"
-            className={control}
+      <Section title="Details">
+        <div className="space-y-3">
+          <TextArea
+            value={form.description}
+            onChange={(e) => patch({ description: e.currentTarget.value })}
+            placeholder="Add a description"
+            rows={3}
+            aria-label="Description"
           />
-        </label>
-      </section>
 
-      <footer className="mt-auto flex items-center gap-2 border-t border-rule px-4 py-3">
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Status">
+              <Select
+                value={form.status}
+                onChange={(e) => patch({ status: e.currentTarget.value as Status })}
+                data-testid="todo-status"
+              >
+                {statusChoices.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Priority">
+              <Select
+                value={form.priority}
+                onChange={(e) => patch({ priority: e.currentTarget.value as Priority })}
+                data-testid="todo-priority"
+              >
+                {priorityOptions.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          </div>
+
+          <Field label="Due">
+            <Input
+              type="datetime-local"
+              value={toLocalInput(form.dueDate)}
+              onChange={(e) =>
+                patch({
+                  dueDate: e.currentTarget.value
+                    ? new Date(e.currentTarget.value).toISOString()
+                    : null,
+                })
+              }
+              data-testid="todo-due"
+            />
+          </Field>
+        </div>
+      </Section>
+
+      <Section title="Repeats">
+        <RepeatsField form={form} onChange={patch} />
+      </Section>
+
+      <footer className="sticky bottom-0 mt-auto flex items-center gap-2 border-t border-rule bg-canvas px-4 py-3">
         {base && (
-          <button
-            type="button"
-            onClick={destroy}
-            data-testid="todo-delete"
-            className="rounded-md px-2.5 py-1.5 text-[13px] text-ink-soft transition-colors hover:bg-sunk hover:text-late"
-          >
+          <Button variant="danger" onClick={destroy} disabled={busy} data-testid="todo-delete">
             Delete
-          </button>
+          </Button>
         )}
-        <button
-          type="button"
+        {base && base.status !== 'completed' && (
+          <Button onClick={finish} disabled={busy} data-testid="todo-complete">
+            Complete
+          </Button>
+        )}
+        <Button
+          variant="primary"
+          className="ml-auto"
           onClick={save}
+          disabled={busy}
           data-testid="todo-save"
-          className="ml-auto rounded-md bg-action px-3 py-1.5 text-[13px] font-medium text-white transition-colors hover:bg-action-hover"
         >
           {isNew ? 'Create task' : 'Save changes'}
-        </button>
+        </Button>
       </footer>
     </aside>
   )

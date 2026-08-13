@@ -15,19 +15,27 @@ type todoBody struct {
 	DueDate     *time.Time `json:"dueDate"`
 	Status      string     `json:"status"`
 	Priority    string     `json:"priority"`
+	RecurUnit   *string    `json:"recurUnit"`
+	RecurEvery  *int       `json:"recurInterval"`
 
 	// The version the client last read. Ignored on create, required on update.
 	Version int `json:"version"`
 }
 
 func (b todoBody) input() service.TodoInput {
-	return service.TodoInput{
+	in := service.TodoInput{
 		Name:        b.Name,
 		Description: b.Description,
 		DueDate:     b.DueDate,
 		Status:      domain.Status(b.Status),
 		Priority:    domain.Priority(b.Priority),
+		RecurEvery:  b.RecurEvery,
 	}
+	if b.RecurUnit != nil {
+		unit := domain.RecurUnit(*b.RecurUnit)
+		in.RecurUnit = &unit
+	}
+	return in
 }
 
 func (s *Server) listTodos(w http.ResponseWriter, r *http.Request) {
@@ -99,10 +107,9 @@ func (s *Server) deleteTodo(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	// A DELETE has no body by convention, so the version rides in the query.
-	version, err := strconv.Atoi(r.URL.Query().Get("version"))
-	if err != nil || version <= 0 {
-		s.fail(w, r, domain.Invalid("version", "Version must be the version you last read"))
+	version, err := queryVersion(r)
+	if err != nil {
+		s.fail(w, r, err)
 		return
 	}
 	if err := s.svc.Delete(r.Context(), id, version); err != nil {
@@ -110,4 +117,39 @@ func (s *Server) deleteTodo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// Completion is its own route rather than a status in the body, because it is
+// not only a status change: a recurring task also gets its next occurrence, and
+// the response has to say which one so the client can point at it.
+func (s *Server) completeTodo(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	version, err := queryVersion(r)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	res, err := s.svc.Complete(r.Context(), id, version)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"completed": res.Completed,
+		"spawned":   res.Spawned,
+	})
+}
+
+// Neither DELETE nor a completion carries a body by convention, so the version
+// rides in the query string for both.
+func queryVersion(r *http.Request) (int, error) {
+	version, err := strconv.Atoi(r.URL.Query().Get("version"))
+	if err != nil || version <= 0 {
+		return 0, domain.Invalid("version", "Version must be the version you last read")
+	}
+	return version, nil
 }

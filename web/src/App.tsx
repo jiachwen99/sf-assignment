@@ -4,6 +4,7 @@ import { useTodos } from './api/todos'
 import { EmptyState } from './components/EmptyState'
 import { TaskDetail } from './components/TaskDetail'
 import { TaskList, TaskListSkeleton } from './components/TaskList'
+import { Button } from './components/ui/Button'
 import type { Todo } from './types'
 
 // 'new' rather than a second piece of state: a task cannot be both open for
@@ -27,14 +28,14 @@ export function App() {
         <header className="flex items-center gap-3 border-b border-rule px-4 py-3">
           <h1 className="text-[15px] font-medium">Tasks</h1>
           {todos && <span className="tabular text-[13px] text-ink-faint">{todos.length}</span>}
-          <button
-            type="button"
+          <Button
+            variant="primary"
+            className="ml-auto"
             onClick={() => setSelection('new')}
             data-testid="new-todo"
-            className="ml-auto rounded-md bg-action px-3 py-1.5 text-[13px] font-medium text-white transition-colors hover:bg-action-hover"
           >
             New task
-          </button>
+          </Button>
         </header>
 
         <div className="flex-1 overflow-y-auto">

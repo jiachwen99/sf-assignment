@@ -45,3 +45,12 @@ export const useDeleteTodo = () =>
   useTodoMutation(({ id, version }: { id: number; version: number }) =>
     request<void>(`/todos/${id}?version=${version}`, { method: 'DELETE' }),
   )
+
+// Its own route, not a status change, because completing a recurring task also
+// opens the next one and the response says which.
+export const useCompleteTodo = () =>
+  useTodoMutation(({ id, version }: { id: number; version: number }) =>
+    request<{ completed: Todo; spawned: Todo | null }>(`/todos/${id}/complete?version=${version}`, {
+      method: 'POST',
+    }),
+  )

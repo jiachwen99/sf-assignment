@@ -1,5 +1,9 @@
 import type { Todo } from '../types'
-import { describeDue, exactDue, priorityLabel, statusLabel, describeCreated } from '../lib/format'
+import { describeCreated, describeDue, exactDue } from '../lib/dates'
+import { priorityLabel, statusLabel } from '../lib/format'
+import { recurrenceLabel } from '../lib/recurrence'
+import { Badge } from './ui/Badge'
+import { RepeatIcon } from './ui/icons'
 
 /*
  * A table, because the job is scanning a few hundred rows rather than reading.
@@ -47,6 +51,7 @@ export function TaskList({
         {todos.map((todo) => {
           const due = describeDue(todo.dueDate)
           const finished = todo.status === 'completed'
+          const repeats = recurrenceLabel(todo)
           return (
             <tr
               key={todo.id}
@@ -58,9 +63,22 @@ export function TaskList({
               }`}
             >
               <td className="py-1.5 pl-4">
-                <span className={`text-[13px] ${finished ? 'text-ink-faint line-through' : 'text-ink'}`}>
-                  {todo.name}
-                </span>
+                <div className="flex min-w-0 items-center gap-2">
+                  <span
+                    className={`truncate text-[13px] ${finished ? 'text-ink-faint line-through' : 'text-ink'}`}
+                  >
+                    {todo.name}
+                  </span>
+                  {/* The cadence is the point, not the fact that an icon is
+                      present. An unlabelled glyph makes a reader hover every
+                      row to find out what it means. */}
+                  {repeats && (
+                    <Badge data-testid="repeats-badge">
+                      <RepeatIcon />
+                      {repeats}
+                    </Badge>
+                  )}
+                </div>
               </td>
               <td className="py-1.5">
                 <span className={`text-[13px] ${dueTone[due.state]}`} title={exactDue(todo.dueDate)}>

@@ -26,9 +26,16 @@ type Todo struct {
 	DueDate     *time.Time `db:"due_date" json:"dueDate"`
 	Status      Status     `db:"status" json:"status"`
 	Priority    Priority   `db:"priority" json:"priority"`
-	Version     int        `db:"version" json:"version"`
-	CreatedAt   time.Time  `db:"created_at" json:"createdAt"`
-	UpdatedAt   time.Time  `db:"updated_at" json:"updatedAt"`
+
+	RecurUnit  *RecurUnit `db:"recur_unit" json:"recurUnit"`
+	RecurEvery *int       `db:"recur_interval" json:"recurInterval"`
+	// Not exposed. It is how the schedule is computed, not something the client
+	// sets or shows, and sending it invites a caller to re-anchor by hand.
+	RecurAnchor *time.Time `db:"recur_anchor" json:"-"`
+
+	Version   int       `db:"version" json:"version"`
+	CreatedAt time.Time `db:"created_at" json:"createdAt"`
+	UpdatedAt time.Time `db:"updated_at" json:"updatedAt"`
 }
 
 func (s Status) Valid() bool {

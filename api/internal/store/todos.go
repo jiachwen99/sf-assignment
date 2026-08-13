@@ -11,7 +11,7 @@ import (
 )
 
 const todoColumns = `id, name, description, due_date, status, priority,
-	version, created_at, updated_at`
+	recur_unit, recur_interval, recur_anchor, version, created_at, updated_at`
 
 type NewTodo struct {
 	Name        string
@@ -19,6 +19,9 @@ type NewTodo struct {
 	DueDate     *time.Time
 	Status      domain.Status
 	Priority    domain.Priority
+	RecurUnit   *domain.RecurUnit
+	RecurEvery  *int
+	RecurAnchor *time.Time
 }
 
 type TodoUpdate struct {
@@ -29,17 +32,24 @@ type TodoUpdate struct {
 	DueDate     *time.Time
 	Status      domain.Status
 	Priority    domain.Priority
+	RecurUnit   *domain.RecurUnit
+	RecurEvery  *int
+	RecurAnchor *time.Time
 }
 
 // The casts are not optional. Without them Postgres has nothing to deduce a
 // type from inside COALESCE, and every insert with no due date fails.
 const insertTodo = `
-INSERT INTO todos (name, description, due_date, due_sort, status, priority)
-VALUES ($1, $2, $3::timestamptz, COALESCE($3::timestamptz, 'infinity'), $4, $5)
+INSERT INTO todos (name, description, due_date, due_sort, status, priority,
+                   recur_unit, recur_interval, recur_anchor)
+VALUES ($1, $2, $3::timestamptz, COALESCE($3::timestamptz, 'infinity'), $4, $5,
+        $6, $7, $8::timestamptz)
 RETURNING ` + todoColumns
 
 func (s *Store) CreateTodo(ctx context.Context, n NewTodo) (domain.Todo, error) {
-	rows, err := s.pool.Query(ctx, insertTodo, n.Name, n.Description, n.DueDate, n.Status, n.Priority)
+	rows, err := s.pool.Query(ctx, insertTodo,
+		n.Name, n.Description, n.DueDate, n.Status, n.Priority,
+		n.RecurUnit, n.RecurEvery, n.RecurAnchor)
 	if err != nil {
 		return domain.Todo{}, wrap("create todo", err)
 	}
@@ -81,13 +91,15 @@ UPDATE todos
 SET name = $3, description = $4,
     due_date = $5::timestamptz, due_sort = COALESCE($5::timestamptz, 'infinity'),
     status = $6, priority = $7,
+    recur_unit = $8, recur_interval = $9, recur_anchor = $10::timestamptz,
     version = version + 1, updated_at = now()
 WHERE id = $1 AND version = $2
 RETURNING ` + todoColumns
 
 func (s *Store) UpdateTodo(ctx context.Context, u TodoUpdate) (domain.Todo, error) {
 	rows, err := s.pool.Query(ctx, updateTodo,
-		u.ID, u.Version, u.Name, u.Description, u.DueDate, u.Status, u.Priority)
+		u.ID, u.Version, u.Name, u.Description, u.DueDate, u.Status, u.Priority,
+		u.RecurUnit, u.RecurEvery, u.RecurAnchor)
 	if err != nil {
 		return domain.Todo{}, wrap("update todo", err)
 	}
