@@ -12,12 +12,16 @@ import (
 // The only place a status code is chosen. Everything below returns one of the
 // domain errors and this decides what it means over HTTP.
 type errorBody struct {
-	Error  string            `json:"error"`
-	Fields map[string]string `json:"fields,omitempty"`
+	Error   string            `json:"error"`
+	Fields  map[string]string `json:"fields,omitempty"`
+	Current *domain.Todo      `json:"current,omitempty"`
 }
 
 func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
-	var invalid *domain.ValidationError
+	var (
+		invalid  *domain.ValidationError
+		conflict *domain.ConflictError
+	)
 
 	switch {
 	case errors.Is(err, domain.ErrNotFound):
@@ -25,6 +29,13 @@ func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 
 	case errors.As(err, &invalid):
 		writeJSON(w, http.StatusBadRequest, errorBody{Error: "invalid input", Fields: invalid.Fields})
+
+	case errors.As(err, &conflict):
+		current := conflict.Current
+		writeJSON(w, http.StatusConflict, errorBody{
+			Error:   "This task was changed by someone else",
+			Current: &current,
+		})
 
 	default:
 		s.log.Error("unhandled", "err", err, "path", r.URL.Path)

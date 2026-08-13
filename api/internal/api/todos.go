@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/jiachwen99/sf-assignment/api/internal/domain"
@@ -14,6 +15,9 @@ type todoBody struct {
 	DueDate     *time.Time `json:"dueDate"`
 	Status      string     `json:"status"`
 	Priority    string     `json:"priority"`
+
+	// The version the client last read. Ignored on create, required on update.
+	Version int `json:"version"`
 }
 
 func (b todoBody) input() service.TodoInput {
@@ -77,7 +81,11 @@ func (s *Server) updateTodo(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	todo, err := s.svc.Update(r.Context(), id, body.input())
+	if body.Version <= 0 {
+		s.fail(w, r, domain.Invalid("version", "Version must be the version you last read"))
+		return
+	}
+	todo, err := s.svc.Update(r.Context(), id, body.Version, body.input())
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -91,7 +99,13 @@ func (s *Server) deleteTodo(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	if err := s.svc.Delete(r.Context(), id); err != nil {
+	// A DELETE has no body by convention, so the version rides in the query.
+	version, err := strconv.Atoi(r.URL.Query().Get("version"))
+	if err != nil || version <= 0 {
+		s.fail(w, r, domain.Invalid("version", "Version must be the version you last read"))
+		return
+	}
+	if err := s.svc.Delete(r.Context(), id, version); err != nil {
 		s.fail(w, r, err)
 		return
 	}

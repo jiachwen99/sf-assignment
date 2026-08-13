@@ -85,7 +85,8 @@ func TestUpdateBumpsVersion(t *testing.T) {
 
 	made := newTodo(t, s, "draft the note")
 	updated, err := s.UpdateTodo(ctx, TodoUpdate{
-		ID: made.ID, Name: "draft the memo", Status: domain.InProgress, Priority: domain.High,
+		ID: made.ID, Version: made.Version,
+		Name: "draft the memo", Status: domain.InProgress, Priority: domain.High,
 	})
 	require.NoError(t, err)
 	require.Equal(t, made.Version+1, updated.Version)
@@ -103,7 +104,7 @@ func TestUnknownIDIsNotFound(t *testing.T) {
 	_, err := s.Todo(ctx, 4242)
 	require.ErrorIs(t, err, domain.ErrNotFound)
 
-	require.ErrorIs(t, s.DeleteTodo(ctx, 4242), domain.ErrNotFound)
+	require.ErrorIs(t, s.DeleteTodo(ctx, 4242, 1), domain.ErrNotFound)
 }
 
 func TestDeleteRemovesItFromTheList(t *testing.T) {
@@ -113,7 +114,7 @@ func TestDeleteRemovesItFromTheList(t *testing.T) {
 	keep := newTodo(t, s, "keep")
 	gone := newTodo(t, s, "gone")
 
-	require.NoError(t, s.DeleteTodo(ctx, gone.ID))
+	require.NoError(t, s.DeleteTodo(ctx, gone.ID, gone.Version))
 
 	all, err := s.Todos(ctx)
 	require.NoError(t, err)
@@ -134,4 +135,73 @@ func TestListIsNewestFirst(t *testing.T) {
 	require.Len(t, all, 2)
 	require.Equal(t, second.ID, all[0].ID)
 	require.Equal(t, first.ID, all[1].ID)
+}
+
+// The whole point of the version guard: the second writer loses, and the row
+// still holds what the first writer put there.
+func TestStaleUpdateIsRejectedAndChangesNothing(t *testing.T) {
+	s := NewTestStore(t)
+	ctx := context.Background()
+
+	made := newTodo(t, s, "book the room")
+	stale := made.Version
+
+	_, err := s.UpdateTodo(ctx, TodoUpdate{
+		ID: made.ID, Version: stale,
+		Name: "book the big room", Status: domain.InProgress, Priority: domain.Medium,
+	})
+	require.NoError(t, err)
+
+	_, err = s.UpdateTodo(ctx, TodoUpdate{
+		ID: made.ID, Version: stale,
+		Name: "cancel the room", Status: domain.Archived, Priority: domain.Low,
+	})
+
+	var conflict *domain.ConflictError
+	require.ErrorAs(t, err, &conflict)
+	require.Equal(t, "book the big room", conflict.Current.Name,
+		"the conflict carries the row as it now stands, not as the loser sent it")
+
+	// Read it back rather than trusting the error: the assertion that matters
+	// is that nothing of the second write reached the table.
+	got, err := s.Todo(ctx, made.ID)
+	require.NoError(t, err)
+	require.Equal(t, "book the big room", got.Name)
+	require.Equal(t, domain.InProgress, got.Status)
+	require.Equal(t, stale+1, got.Version)
+}
+
+func TestStaleDeleteIsRejectedAndTheRowSurvives(t *testing.T) {
+	s := NewTestStore(t)
+	ctx := context.Background()
+
+	made := newTodo(t, s, "pay the invoice")
+	_, err := s.UpdateTodo(ctx, TodoUpdate{
+		ID: made.ID, Version: made.Version,
+		Name: "pay the invoice", Status: domain.InProgress, Priority: domain.High,
+	})
+	require.NoError(t, err)
+
+	var conflict *domain.ConflictError
+	require.ErrorAs(t, s.DeleteTodo(ctx, made.ID, made.Version), &conflict)
+
+	all, err := s.Todos(ctx)
+	require.NoError(t, err)
+	require.Len(t, all, 1)
+}
+
+// A missing row and a stale version both match nothing, and the difference
+// decides whether the client reloads or is told the task is gone.
+func TestDeletedRowIsNotFoundRatherThanAConflict(t *testing.T) {
+	s := NewTestStore(t)
+	ctx := context.Background()
+
+	made := newTodo(t, s, "chase the courier")
+	require.NoError(t, s.DeleteTodo(ctx, made.ID, made.Version))
+
+	_, err := s.UpdateTodo(ctx, TodoUpdate{
+		ID: made.ID, Version: made.Version,
+		Name: "chase the courier again", Status: domain.NotStarted, Priority: domain.Medium,
+	})
+	require.ErrorIs(t, err, domain.ErrNotFound)
 }

@@ -18,15 +18,30 @@ function useTodoMutation<T>(fn: (v: T) => Promise<unknown>) {
   })
 }
 
+// A rejected write means the list is out of date too, but refetching while the
+// panel is open would pull the ground out from under the banner explaining why.
+// The caller refreshes when it is done with the answer.
+export function useRefreshTodos() {
+  const qc = useQueryClient()
+  return () => qc.invalidateQueries({ queryKey: queryKeys.todos })
+}
+
 export const useCreateTodo = () =>
   useTodoMutation((input: TodoInput) =>
     request<Todo>('/todos', { method: 'POST', body: JSON.stringify(input) }),
   )
 
+// Every write carries the version it was built from, so the server can reject
+// it if the row moved on in the meantime.
 export const useUpdateTodo = () =>
-  useTodoMutation(({ id, input }: { id: number; input: TodoInput }) =>
-    request<Todo>(`/todos/${id}`, { method: 'PUT', body: JSON.stringify(input) }),
+  useTodoMutation(({ id, version, input }: { id: number; version: number; input: TodoInput }) =>
+    request<Todo>(`/todos/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ ...input, version }),
+    }),
   )
 
 export const useDeleteTodo = () =>
-  useTodoMutation((id: number) => request<void>(`/todos/${id}`, { method: 'DELETE' }))
+  useTodoMutation(({ id, version }: { id: number; version: number }) =>
+    request<void>(`/todos/${id}?version=${version}`, { method: 'DELETE' }),
+  )

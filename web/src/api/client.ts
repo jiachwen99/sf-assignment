@@ -1,13 +1,24 @@
+import type { Todo } from '../types'
+
 // Mirrors the server's error body so callers can react to the shape rather
 // than parsing a message string.
 export class ApiError extends Error {
   status: number
   fields?: Record<string, string>
+  current?: Todo
 
-  constructor(status: number, body: { error?: string; fields?: Record<string, string> }) {
+  constructor(
+    status: number,
+    body: { error?: string; fields?: Record<string, string>; current?: Todo },
+  ) {
     super(body.error ?? `request failed with ${status}`)
     this.status = status
     this.fields = body.fields
+    this.current = body.current
+  }
+
+  get isConflict() {
+    return this.status === 409
   }
 }
 

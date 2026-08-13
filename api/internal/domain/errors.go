@@ -2,6 +2,7 @@ package domain
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 )
 
@@ -23,4 +24,14 @@ func (e *ValidationError) Error() string {
 
 func Invalid(field, reason string) *ValidationError {
 	return &ValidationError{Fields: map[string]string{field: reason}}
+}
+
+// ConflictError carries the row as it now stands. Rejecting a stale write is
+// only half an answer; the client also needs to show what it lost to.
+type ConflictError struct {
+	Current Todo
+}
+
+func (e *ConflictError) Error() string {
+	return fmt.Sprintf("todo %d was changed by someone else", e.Current.ID)
 }

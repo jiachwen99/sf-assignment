@@ -1,1 +1,1 @@
-export type { Status, Priority, RecurUnit, Todo, TodoInput } from './todo'
+export type { Status, Priority, Todo, TodoInput } from './todo'

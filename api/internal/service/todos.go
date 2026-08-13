@@ -78,12 +78,13 @@ func (s *Service) Todos(ctx context.Context) ([]domain.Todo, error) {
 	return s.store.Todos(ctx)
 }
 
-func (s *Service) Update(ctx context.Context, id int64, in TodoInput) (domain.Todo, error) {
+func (s *Service) Update(ctx context.Context, id int64, version int, in TodoInput) (domain.Todo, error) {
 	if err := in.normaliseAndValidate(); err != nil {
 		return domain.Todo{}, err
 	}
 	return s.store.UpdateTodo(ctx, store.TodoUpdate{
 		ID:          id,
+		Version:     version,
 		Name:        in.Name,
 		Description: in.Description,
 		DueDate:     in.DueDate,
@@ -92,6 +93,6 @@ func (s *Service) Update(ctx context.Context, id int64, in TodoInput) (domain.To
 	})
 }
 
-func (s *Service) Delete(ctx context.Context, id int64) error {
-	return s.store.DeleteTodo(ctx, id)
+func (s *Service) Delete(ctx context.Context, id int64, version int) error {
+	return s.store.DeleteTodo(ctx, id, version)
 }

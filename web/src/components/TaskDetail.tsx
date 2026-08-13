@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ApiError } from '../api/client'
-import { useCreateTodo, useDeleteTodo, useUpdateTodo } from '../api/todos'
+import { useCreateTodo, useDeleteTodo, useRefreshTodos, useUpdateTodo } from '../api/todos'
 import { priorityOptions, statusOptions } from '../lib/format'
 import type { Todo, TodoInput } from '../types'
 
@@ -11,6 +11,11 @@ import type { Todo, TodoInput } from '../types'
  * the list to stay on screen. It only becomes an overlay when the viewport is
  * too narrow to hold both.
  */
+
+// The two ways the server can refuse a write on a row you were looking at. The
+// store goes to the trouble of telling them apart, so the panel does too: one
+// has a version to move to, the other has nothing left to edit.
+type Rejection = { kind: 'conflict'; current: Todo } | { kind: 'gone' }
 
 const blank: TodoInput = {
   name: '',
@@ -44,34 +49,60 @@ export function TaskDetail({ todo, onClose }: { todo: Todo | 'new'; onClose: () 
   const isNew = todo === 'new'
   const existing = isNew ? null : todo
 
+  // The row this form was built from. It starts as the one you clicked and
+  // moves only when you accept a newer one, which is what makes the version
+  // sent with a save the version you actually looked at.
+  const [base, setBase] = useState<Todo | null>(existing)
   const [form, setForm] = useState<TodoInput>(existing ? toInput(existing) : blank)
   const [errors, setErrors] = useState<Record<string, string>>({})
+  const [rejected, setRejected] = useState<Rejection | null>(null)
 
   const create = useCreateTodo()
   const update = useUpdateTodo()
   const remove = useDeleteTodo()
+  const refreshTodos = useRefreshTodos()
 
+  // Keyed on which task is open, not on the object. The list refetches after
+  // every write, and resetting on a new object identity would throw away
+  // whatever was half typed at the time.
+  const openID = isNew ? 'new' : todo.id
   useEffect(() => {
+    setBase(existing)
     setForm(existing ? toInput(existing) : blank)
     setErrors({})
-  }, [todo])
+    setRejected(null)
+  }, [openID])
+
+  // A rejected write is not a failure to report and move on from: the edits are
+  // still in the form and still worth something, so the panel stays as it is
+  // and the banner offers whatever choice is left.
+  const handle = (err: unknown) => {
+    if (!(err instanceof ApiError)) throw err
+    if (err.fields) return setErrors(err.fields)
+    if (err.isConflict && err.current) return setRejected({ kind: 'conflict', current: err.current })
+    if (err.status === 404) return setRejected({ kind: 'gone' })
+    throw err
+  }
 
   const save = async () => {
     setErrors({})
     try {
-      if (existing) await update.mutateAsync({ id: existing.id, input: form })
+      if (base) await update.mutateAsync({ id: base.id, version: base.version, input: form })
       else await create.mutateAsync(form)
       onClose()
     } catch (err) {
-      if (err instanceof ApiError && err.fields) setErrors(err.fields)
-      else throw err
+      handle(err)
     }
   }
 
   const destroy = async () => {
-    if (!existing) return
-    await remove.mutateAsync(existing.id)
-    onClose()
+    if (!base) return
+    try {
+      await remove.mutateAsync({ id: base.id, version: base.version })
+      onClose()
+    } catch (err) {
+      handle(err)
+    }
   }
 
   return (
@@ -105,6 +136,54 @@ export function TaskDetail({ todo, onClose }: { todo: Todo | 'new'; onClose: () 
       </header>
 
       {errors.name && <p className="px-4 pt-2 text-[12px] text-late">{errors.name}</p>}
+
+      {rejected && (
+        <div
+          data-testid="conflict-banner"
+          className="mx-4 mt-3 rounded-md border border-halt-edge bg-halt-wash p-3"
+        >
+          {rejected.kind === 'conflict' ? (
+            <>
+              <p className="text-[13px] font-medium text-ink">Someone else changed this task</p>
+              <p className="mt-1 text-[12px] text-ink-soft">
+                Your edit was not saved. It now reads &ldquo;{rejected.current.name}&rdquo;.
+              </p>
+              {/* Load, not merge. Guessing which side of a field to keep is how
+                  you lose the half nobody looked at. */}
+              <button
+                type="button"
+                data-testid="conflict-reload"
+                onClick={() => {
+                  setBase(rejected.current)
+                  setForm(toInput(rejected.current))
+                  setRejected(null)
+                }}
+                className="mt-2 rounded-md bg-ink px-2.5 py-1 text-[12px] font-medium text-canvas transition-colors hover:bg-ink-soft"
+              >
+                Load the current version
+              </button>
+            </>
+          ) : (
+            <>
+              <p className="text-[13px] font-medium text-ink">This task has been deleted</p>
+              <p className="mt-1 text-[12px] text-ink-soft">
+                Someone else removed it, so your edit has nowhere to go.
+              </p>
+              <button
+                type="button"
+                data-testid="conflict-close"
+                onClick={() => {
+                  refreshTodos()
+                  onClose()
+                }}
+                className="mt-2 rounded-md bg-ink px-2.5 py-1 text-[12px] font-medium text-canvas transition-colors hover:bg-ink-soft"
+              >
+                Close
+              </button>
+            </>
+          )}
+        </div>
+      )}
 
       <section className="border-t border-rule px-4 py-3.5">
         <h3 className="mb-2.5 text-[11px] font-medium tracking-wide text-ink-soft uppercase">Details</h3>
@@ -170,7 +249,7 @@ export function TaskDetail({ todo, onClose }: { todo: Todo | 'new'; onClose: () 
       </section>
 
       <footer className="mt-auto flex items-center gap-2 border-t border-rule px-4 py-3">
-        {existing && (
+        {base && (
           <button
             type="button"
             onClick={destroy}

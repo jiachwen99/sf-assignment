@@ -23,6 +23,7 @@ type NewTodo struct {
 
 type TodoUpdate struct {
 	ID          int64
+	Version     int
 	Name        string
 	Description string
 	DueDate     *time.Time
@@ -73,34 +74,49 @@ func (s *Store) Todos(ctx context.Context) ([]domain.Todo, error) {
 	return out, wrap("list todos", err)
 }
 
+// Matched on the version the client read, so a write built from a stale copy
+// updates nothing rather than overwriting whatever landed in between.
 const updateTodo = `
 UPDATE todos
-SET name = $2, description = $3,
-    due_date = $4::timestamptz, due_sort = COALESCE($4::timestamptz, 'infinity'),
-    status = $5, priority = $6,
+SET name = $3, description = $4,
+    due_date = $5::timestamptz, due_sort = COALESCE($5::timestamptz, 'infinity'),
+    status = $6, priority = $7,
     version = version + 1, updated_at = now()
-WHERE id = $1
+WHERE id = $1 AND version = $2
 RETURNING ` + todoColumns
 
 func (s *Store) UpdateTodo(ctx context.Context, u TodoUpdate) (domain.Todo, error) {
-	rows, err := s.pool.Query(ctx, updateTodo, u.ID, u.Name, u.Description, u.DueDate, u.Status, u.Priority)
+	rows, err := s.pool.Query(ctx, updateTodo,
+		u.ID, u.Version, u.Name, u.Description, u.DueDate, u.Status, u.Priority)
 	if err != nil {
 		return domain.Todo{}, wrap("update todo", err)
 	}
 	out, err := pgx.CollectExactlyOneRow(rows, pgx.RowToStructByName[domain.Todo])
 	if errors.Is(err, pgx.ErrNoRows) {
-		return domain.Todo{}, domain.ErrNotFound
+		return domain.Todo{}, s.conflictOrNotFound(ctx, u.ID)
 	}
 	return out, wrap("update todo", err)
 }
 
-func (s *Store) DeleteTodo(ctx context.Context, id int64) error {
-	tag, err := s.pool.Exec(ctx, `DELETE FROM todos WHERE id = $1`, id)
+// Delete is a write too, so it carries a version. Otherwise the one operation
+// you cannot undo is the one that ignores what you were looking at.
+func (s *Store) DeleteTodo(ctx context.Context, id int64, version int) error {
+	tag, err := s.pool.Exec(ctx, `DELETE FROM todos WHERE id = $1 AND version = $2`, id, version)
 	if err != nil {
 		return wrap("delete todo", err)
 	}
 	if tag.RowsAffected() == 0 {
-		return domain.ErrNotFound
+		return s.conflictOrNotFound(ctx, id)
 	}
 	return nil
+}
+
+// A version-guarded write matching nothing means either the row is gone or
+// somebody changed it first, and only a second read tells those apart.
+func (s *Store) conflictOrNotFound(ctx context.Context, id int64) error {
+	current, err := s.Todo(ctx, id)
+	if err != nil {
+		return err
+	}
+	return &domain.ConflictError{Current: current}
 }
