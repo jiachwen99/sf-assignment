@@ -151,6 +151,38 @@ func (s *Service) Complete(ctx context.Context, id int64, version int) (store.Co
 	return s.store.Complete(ctx, id, version, time.Now().UTC())
 }
 
+func (s *Service) Dependencies(ctx context.Context, id int64) ([]domain.Blocker, error) {
+	return s.store.Dependencies(ctx, id)
+}
+
+func (s *Service) Dependents(ctx context.Context, id int64) ([]domain.Blocker, error) {
+	return s.store.Dependents(ctx, id)
+}
+
+func (s *Service) AddDependency(ctx context.Context, id, dependsOnID int64) error {
+	return s.store.AddDependency(ctx, id, dependsOnID)
+}
+
+func (s *Service) RemoveDependency(ctx context.Context, id, dependsOnID int64) error {
+	return s.store.RemoveDependency(ctx, id, dependsOnID)
+}
+
+// The floor and the ceiling both belong here rather than at the HTTP edge: the
+// short-query rule is about how selective a trigram scan is, and the cap is
+// about how many results a picker can usefully show.
+const (
+	minSearch     = 3
+	searchResults = 10
+)
+
+func (s *Service) Search(ctx context.Context, term string, excludeID int64) ([]domain.Todo, error) {
+	term = strings.TrimSpace(term)
+	if len(term) < minSearch {
+		return []domain.Todo{}, nil
+	}
+	return s.store.SearchTodos(ctx, term, excludeID, searchResults)
+}
+
 func (s *Service) Delete(ctx context.Context, id int64, version int) error {
 	return s.store.DeleteTodo(ctx, id, version)
 }

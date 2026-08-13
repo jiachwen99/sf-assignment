@@ -60,7 +60,16 @@ export function App() {
 
       {open && (
         <div className="w-[340px] shrink-0">
-          <TaskDetail todo={open} onClose={() => setSelection(null)} />
+          <TaskDetail
+            todo={open}
+            onClose={() => setSelection(null)}
+            // The chain is also how you navigate it: clicking a node opens that
+            // task in the same panel.
+            onOpenTask={(id) => {
+              const next = todos?.find((t) => t.id === id)
+              if (next) setSelection(next)
+            }}
+          />
         </div>
       )}
     </div>

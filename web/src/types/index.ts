@@ -1,1 +1,9 @@
-export type { Status, Priority, RecurUnit, Todo, TodoInput } from './todo'
+export type {
+  Status,
+  Priority,
+  RecurUnit,
+  Todo,
+  TodoInput,
+  Blocker,
+  DependencyView,
+} from './todo'

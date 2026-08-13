@@ -11,7 +11,8 @@ import (
 )
 
 const todoColumns = `id, name, description, due_date, status, priority,
-	recur_unit, recur_interval, recur_anchor, version, created_at, updated_at`
+	recur_unit, recur_interval, recur_anchor, unmet_deps_count,
+	version, created_at, updated_at`
 
 type NewTodo struct {
 	Name        string
@@ -96,22 +97,88 @@ SET name = $3, description = $4,
 WHERE id = $1 AND version = $2
 RETURNING ` + todoColumns
 
+// The blocking rule and the dependents' counters are settled in the same
+// transaction as the write, so a counter can never disagree with the status it
+// was derived from.
 func (s *Store) UpdateTodo(ctx context.Context, u TodoUpdate) (domain.Todo, error) {
-	rows, err := s.pool.Query(ctx, updateTodo,
-		u.ID, u.Version, u.Name, u.Description, u.DueDate, u.Status, u.Priority,
-		u.RecurUnit, u.RecurEvery, u.RecurAnchor)
-	if err != nil {
-		return domain.Todo{}, wrap("update todo", err)
-	}
-	out, err := pgx.CollectExactlyOneRow(rows, pgx.RowToStructByName[domain.Todo])
-	if errors.Is(err, pgx.ErrNoRows) {
+	var out domain.Todo
+
+	err := s.tx(ctx, func(tx pgx.Tx) error {
+		var was domain.Status
+		var unmet int
+		err := tx.QueryRow(ctx,
+			`SELECT status, unmet_deps_count FROM todos WHERE id = $1`, u.ID).Scan(&was, &unmet)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+
+		if err := domain.CanTransition(was, u.Status, unmet, nil, u.ID); err != nil {
+			return namedBlockers(ctx, tx, u.ID, err)
+		}
+
+		rows, err := tx.Query(ctx, updateTodo,
+			u.ID, u.Version, u.Name, u.Description, u.DueDate, u.Status, u.Priority,
+			u.RecurUnit, u.RecurEvery, u.RecurAnchor)
+		if err != nil {
+			return err
+		}
+		out, err = pgx.CollectExactlyOneRow(rows, pgx.RowToStructByName[domain.Todo])
+		if errors.Is(err, pgx.ErrNoRows) {
+			return errStale
+		}
+		if err != nil {
+			return err
+		}
+
+		return adjustDependents(ctx, tx, u.ID, was, u.Status)
+	})
+
+	if errors.Is(err, errStale) {
 		return domain.Todo{}, s.conflictOrNotFound(ctx, u.ID)
 	}
 	return out, wrap("update todo", err)
 }
 
+// CanTransition is given the count rather than the names, because the count is
+// already on the row and the names cost a query. They are only worth fetching
+// once something is actually refused.
+func namedBlockers(ctx context.Context, tx pgx.Tx, id int64, err error) error {
+	var blocked *domain.BlockedError
+	if !errors.As(err, &blocked) {
+		return err
+	}
+	named, lookupErr := blockersTx(ctx, tx, id)
+	if lookupErr != nil {
+		return lookupErr
+	}
+	blocked.Blockers = named
+	return err
+}
+
 // Delete is a write too, so it carries a version. Otherwise the one operation
 // you cannot undo is the one that ignores what you were looking at.
+// Substring rather than prefix, because nobody types the first word of a task
+// name to find it. The caller requires three characters before asking, which
+// keeps the least selective searches off the database entirely.
+const searchTodos = `
+SELECT ` + todoColumns + `
+FROM todos
+WHERE name ILIKE '%' || $1 || '%' AND id <> $2
+ORDER BY name, id
+LIMIT $3`
+
+func (s *Store) SearchTodos(ctx context.Context, term string, excludeID int64, limit int) ([]domain.Todo, error) {
+	rows, err := s.pool.Query(ctx, searchTodos, term, excludeID, limit)
+	if err != nil {
+		return nil, wrap("search todos", err)
+	}
+	out, err := pgx.CollectRows(rows, pgx.RowToStructByName[domain.Todo])
+	return out, wrap("search todos", err)
+}
+
 func (s *Store) DeleteTodo(ctx context.Context, id int64, version int) error {
 	tag, err := s.pool.Exec(ctx, `DELETE FROM todos WHERE id = $1 AND version = $2`, id, version)
 	if err != nil {

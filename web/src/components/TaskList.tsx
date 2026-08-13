@@ -72,6 +72,14 @@ export function TaskList({
                   {/* The cadence is the point, not the fact that an icon is
                       present. An unlabelled glyph makes a reader hover every
                       row to find out what it means. */}
+                  {/* Blocked comes first: it is the one thing that stops you
+                      acting on a row, so it should be read before the name has
+                      finished registering. */}
+                  {todo.unmetDeps > 0 && (
+                    <Badge tone="halt" data-testid="blocked-badge" title="Waiting on unfinished work">
+                      Blocked
+                    </Badge>
+                  )}
                   {repeats && (
                     <Badge data-testid="repeats-badge">
                       <RepeatIcon />

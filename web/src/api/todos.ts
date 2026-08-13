@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { request } from './client'
-import { queryKeys } from '../constants'
-import type { Todo, TodoInput } from '../types'
+import { MIN_SEARCH, queryKeys } from '../constants'
+import type { DependencyView, Todo, TodoInput } from '../types'
 
 export function useTodos() {
   return useQuery({
@@ -15,6 +15,56 @@ function useTodoMutation<T>(fn: (v: T) => Promise<unknown>) {
   return useMutation({
     mutationFn: fn,
     onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.todos }),
+  })
+}
+
+export function useDependencies(id: number | null) {
+  return useQuery({
+    queryKey: queryKeys.dependencies(id ?? 0),
+    queryFn: () => request<DependencyView>(`/todos/${id}/dependencies`),
+    enabled: id !== null,
+  })
+}
+
+// The chain comes back from the write itself, so linking is one round trip
+// rather than a mutation followed by a refetch. The task list still needs
+// invalidating: the counter on the row has moved.
+function useDependencyMutation<T>(fn: (v: T) => Promise<DependencyView>) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: fn,
+    onSuccess: (chain, vars) => {
+      const { todoId } = vars as { todoId: number }
+      qc.setQueryData(queryKeys.dependencies(todoId), chain)
+      qc.invalidateQueries({ queryKey: queryKeys.todos })
+    },
+  })
+}
+
+export const useAddDependency = () =>
+  useDependencyMutation(({ todoId, dependsOnId }: { todoId: number; dependsOnId: number }) =>
+    request<DependencyView>(`/todos/${todoId}/dependencies`, {
+      method: 'POST',
+      body: JSON.stringify({ dependsOnId }),
+    }),
+  )
+
+export const useRemoveDependency = () =>
+  useDependencyMutation(({ todoId, dependsOnId }: { todoId: number; dependsOnId: number }) =>
+    request<DependencyView>(`/todos/${todoId}/dependencies/${dependsOnId}`, { method: 'DELETE' }),
+  )
+
+// Held at the client until the term is long enough, so a one-letter search
+// never reaches the database at all.
+export function useTodoSearch(term: string, excludeId: number) {
+  const trimmed = term.trim()
+  return useQuery({
+    queryKey: queryKeys.search(trimmed, excludeId),
+    queryFn: () =>
+      request<{ items: Todo[] }>(
+        `/todos/search?q=${encodeURIComponent(trimmed)}&exclude=${excludeId}`,
+      ).then((r) => r.items),
+    enabled: trimmed.length >= MIN_SEARCH,
   })
 }
 

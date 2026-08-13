@@ -1,4 +1,11 @@
-import type { Todo } from '../types'
+import type { Blocker, Todo } from '../types'
+
+type ErrorBody = {
+  error?: string
+  fields?: Record<string, string>
+  current?: Todo
+  blockers?: Blocker[]
+}
 
 // Mirrors the server's error body so callers can react to the shape rather
 // than parsing a message string.
@@ -6,17 +13,19 @@ export class ApiError extends Error {
   status: number
   fields?: Record<string, string>
   current?: Todo
+  blockers?: Blocker[]
 
-  constructor(
-    status: number,
-    body: { error?: string; fields?: Record<string, string>; current?: Todo },
-  ) {
+  constructor(status: number, body: ErrorBody) {
     super(body.error ?? `request failed with ${status}`)
     this.status = status
     this.fields = body.fields
     this.current = body.current
+    this.blockers = body.blockers
   }
 
+  // Both a stale version and a blocked transition come back as 409: the request
+  // is well formed and would be legal at another moment. `current` and
+  // `blockers` say which it was.
   get isConflict() {
     return this.status === 409
   }

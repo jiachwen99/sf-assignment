@@ -1,15 +1,18 @@
-import type { Todo } from '../../types'
+import type { Blocker, Todo } from '../../types'
 import { Button } from '../ui/Button'
 import { Notice } from '../ui/Notice'
 
 /*
- * The two ways the server refuses a write on a row you were looking at.
+ * The three ways the server refuses a write on a task you were looking at.
  *
- * The store goes to the trouble of telling a stale version apart from a deleted
- * row, so the panel does too: one has a version to move to, the other has
- * nothing left to edit.
+ * The store goes to the trouble of telling them apart, so the panel does too:
+ * one has a version to move to, one has work to go and finish, and one has
+ * nothing left to edit at all.
  */
-export type Rejection = { kind: 'conflict'; current: Todo } | { kind: 'gone' }
+export type Rejection =
+  | { kind: 'conflict'; current: Todo }
+  | { kind: 'blocked'; blockers: Blocker[] }
+  | { kind: 'gone' }
 
 export function RejectionNotice({
   rejection,
@@ -38,6 +41,15 @@ export function RejectionNotice({
           >
             Load the current version
           </Button>
+        </Notice>
+      ) : rejection.kind === 'blocked' ? (
+        // The names, not the count. A count says you are stuck; the names say
+        // what to go and finish.
+        <Notice title="This task is waiting on unfinished work" data-testid="blocked-banner">
+          <p className="mt-1 text-[12px] text-ink-soft">
+            Blocked by {rejection.blockers.map((b) => b.name).join(', ')}. Only completing a task
+            releases what waits on it.
+          </p>
         </Notice>
       ) : (
         <Notice title="This task has been deleted" data-testid="conflict-banner">

@@ -12,15 +12,17 @@ import (
 // The only place a status code is chosen. Everything below returns one of the
 // domain errors and this decides what it means over HTTP.
 type errorBody struct {
-	Error   string            `json:"error"`
-	Fields  map[string]string `json:"fields,omitempty"`
-	Current *domain.Todo      `json:"current,omitempty"`
+	Error    string            `json:"error"`
+	Fields   map[string]string `json:"fields,omitempty"`
+	Current  *domain.Todo      `json:"current,omitempty"`
+	Blockers []domain.Blocker  `json:"blockers,omitempty"`
 }
 
 func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 	var (
 		invalid  *domain.ValidationError
 		conflict *domain.ConflictError
+		blocked  *domain.BlockedError
 	)
 
 	switch {
@@ -35,6 +37,14 @@ func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 		writeJSON(w, http.StatusConflict, errorBody{
 			Error:   "This task was changed by someone else",
 			Current: &current,
+		})
+
+	// 409 rather than 422: the request is well formed and would be legal once
+	// the blockers are done. It conflicts with the current state, not the rules.
+	case errors.As(err, &blocked):
+		writeJSON(w, http.StatusConflict, errorBody{
+			Error:    "This task is blocked by unfinished work",
+			Blockers: blocked.Blockers,
 		})
 
 	default:

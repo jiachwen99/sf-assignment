@@ -11,9 +11,23 @@ export type Todo = {
   priority: Priority
   recurUnit: RecurUnit | null
   recurInterval: number | null
+  unmetDeps: number
   version: number
   createdAt: string
   updatedAt: string
+}
+
+// A dependency or dependent, named. Enough to draw a chain node and to say what
+// is holding a task up, without loading whole tasks to do it.
+export type Blocker = {
+  id: number
+  name: string
+  status: Status
+}
+
+export type DependencyView = {
+  dependencies: Blocker[]
+  dependents: Blocker[]
 }
 
 // The editable fields only. The version travels beside this rather than in it,

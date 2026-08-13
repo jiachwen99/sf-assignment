@@ -46,6 +46,20 @@ func (s *Store) Complete(ctx context.Context, id int64, version int, now time.Ti
 	var out CompleteResult
 
 	err := s.tx(ctx, func(tx pgx.Tx) error {
+		var was domain.Status
+		var unmet int
+		err := tx.QueryRow(ctx,
+			`SELECT status, unmet_deps_count FROM todos WHERE id = $1`, id).Scan(&was, &unmet)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+		if err := domain.CanTransition(was, domain.Completed, unmet, nil, id); err != nil {
+			return namedBlockers(ctx, tx, id, err)
+		}
+
 		rows, err := tx.Query(ctx, markCompleted, id, version)
 		if err != nil {
 			return err
@@ -58,6 +72,10 @@ func (s *Store) Complete(ctx context.Context, id int64, version int, now time.Ti
 			return err
 		}
 		out.Completed = completed
+
+		if err := adjustDependents(ctx, tx, id, was, domain.Completed); err != nil {
+			return err
+		}
 
 		if completed.RecurUnit == nil || completed.RecurEvery == nil {
 			return nil

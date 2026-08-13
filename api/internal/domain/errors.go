@@ -35,3 +35,18 @@ type ConflictError struct {
 func (e *ConflictError) Error() string {
 	return fmt.Sprintf("todo %d was changed by someone else", e.Current.ID)
 }
+
+// BlockedError carries the blockers by name. A refusal that says only "blocked"
+// leaves the reader to work out by what; the names say what to go and finish.
+type BlockedError struct {
+	Target   int64
+	Blockers []Blocker
+}
+
+func (e *BlockedError) Error() string {
+	names := make([]string, 0, len(e.Blockers))
+	for _, b := range e.Blockers {
+		names = append(names, b.Name)
+	}
+	return "blocked by " + strings.Join(names, ", ")
+}

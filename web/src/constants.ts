@@ -13,8 +13,14 @@ export const SCHEDULES = [
   { key: 'custom', label: 'Custom', unit: 'week', interval: 2 },
 ] as const
 
+// Held back until three characters, which keeps the shortest and least
+// selective searches from ever reaching the trigram index.
+export const MIN_SEARCH = 3
+
 export const queryKeys = {
   todos: ['todos'],
   counts: ['counts'],
   trash: ['trash'],
+  dependencies: (id: number) => ['todos', id, 'dependencies'],
+  search: (term: string, excludeId: number) => ['todos', 'search', term, excludeId],
 }
