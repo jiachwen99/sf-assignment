@@ -142,7 +142,7 @@ func adjustDependents(ctx context.Context, tx pgx.Tx, id int64, was, now domain.
 
 // What this task waits for.
 const selectDependencies = `
-SELECT t.id, t.name, t.status
+SELECT t.id, t.name, t.status, t.deleted_at IS NOT NULL
 FROM todo_dependencies d
 JOIN todos t ON t.id = d.depends_on_id
 WHERE d.todo_id = $1
@@ -154,7 +154,7 @@ func (s *Store) Dependencies(ctx context.Context, todoID int64) ([]domain.Blocke
 
 // What waits on this task.
 const selectDependents = `
-SELECT t.id, t.name, t.status
+SELECT t.id, t.name, t.status, t.deleted_at IS NOT NULL
 FROM todo_dependencies d
 JOIN todos t ON t.id = d.todo_id
 WHERE d.depends_on_id = $1
@@ -166,7 +166,7 @@ func (s *Store) Dependents(ctx context.Context, todoID int64) ([]domain.Blocker,
 
 // The subset of dependencies that are actually holding this task up.
 const selectBlockers = `
-SELECT t.id, t.name, t.status
+SELECT t.id, t.name, t.status, t.deleted_at IS NOT NULL
 FROM todo_dependencies d
 JOIN todos t ON t.id = d.depends_on_id
 WHERE d.todo_id = $1 AND t.status <> 'completed'

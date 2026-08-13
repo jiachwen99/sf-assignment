@@ -23,6 +23,8 @@ export type Blocker = {
   id: number
   name: string
   status: Status
+  // A deleted task still blocks what waits on it, so the chain has to say so.
+  deleted: boolean
 }
 
 export type DependencyView = {

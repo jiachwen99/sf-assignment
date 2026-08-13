@@ -119,6 +119,34 @@ func (s *Server) deleteTodo(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (s *Server) listTrash(w http.ResponseWriter, r *http.Request) {
+	items, err := s.svc.Trash(r.Context())
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if items == nil {
+		items = []domain.Todo{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+// No version: nothing can edit a task while it is in the trash, so the copy
+// being restored is the only copy there has been.
+func (s *Server) restoreTodo(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	todo, err := s.svc.Restore(r.Context(), id)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, todo)
+}
+
 // Completion is its own route rather than a status in the body, because it is
 // not only a status change: a recurring task also gets its next occurrence, and
 // the response has to say which one so the client can point at it.

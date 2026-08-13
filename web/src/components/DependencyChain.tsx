@@ -38,7 +38,13 @@ function Node({
         {item.name}
       </button>
       <span className="shrink-0 text-[11px] text-ink-faint">
-        {satisfied ? 'done' : item.status === 'archived' ? 'archived' : 'not done'}
+        {item.deleted
+          ? 'deleted'
+          : satisfied
+            ? 'done'
+            : item.status === 'archived'
+              ? 'archived'
+              : 'not done'}
       </span>
       {onUnlink && (
         <button
@@ -139,8 +145,12 @@ export function DependencyChain({
 
       {isBlocked && (
         <p className="pt-1 text-[12px] text-halt">
-          {blocking.length === 1 ? 'This is waiting on one task.' : `This is waiting on ${blocking.length} tasks.`}{' '}
+          {blocking.length === 1
+            ? 'This is waiting on one task.'
+            : `This is waiting on ${blocking.length} tasks.`}{' '}
           Archiving or deleting a blocker does not release it, only completing does.
+          {blocking.some((b) => b.deleted) &&
+            ' A deleted blocker can be restored from the trash and then completed.'}
         </p>
       )}
     </div>

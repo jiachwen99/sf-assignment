@@ -233,24 +233,6 @@ func TestDependenciesAndDependentsAreBothVisible(t *testing.T) {
 	require.Equal(t, "above", dependents[0].Name)
 }
 
-// Deleting a task takes its edges with it, which is what ON DELETE CASCADE is
-// for. The counter is left alone on purpose: the dependent is still waiting for
-// work that will now never be done, and saying otherwise would be a lie.
-func TestDeletingATaskRemovesItsEdges(t *testing.T) {
-	s := NewTestStore(t)
-	ctx := context.Background()
-
-	report := newTodo(t, s, "write the report")
-	data := newTodo(t, s, "collect the data")
-	require.NoError(t, s.AddDependency(ctx, report.ID, data.ID))
-
-	require.NoError(t, s.DeleteTodo(ctx, data.ID, data.Version))
-
-	deps, err := s.Dependencies(ctx, report.ID)
-	require.NoError(t, err)
-	require.Empty(t, deps)
-}
-
 func TestSearchMatchesInsideTheName(t *testing.T) {
 	s := NewTestStore(t)
 	ctx := context.Background()

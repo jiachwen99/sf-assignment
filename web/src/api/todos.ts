@@ -14,7 +14,30 @@ function useTodoMutation<T>(fn: (v: T) => Promise<unknown>) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: fn,
-    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.todos }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.todos })
+      // Deleting moves a task into the trash, so that list is stale too.
+      qc.invalidateQueries({ queryKey: queryKeys.trash })
+    },
+  })
+}
+
+export function useTrash() {
+  return useQuery({
+    queryKey: queryKeys.trash,
+    queryFn: () => request<{ items: Todo[] }>('/todos/trash').then((r) => r.items),
+  })
+}
+
+export function useRestoreTodo() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => request<Todo>(`/todos/${id}/restore`, { method: 'POST' }),
+    // Both lists move: one gains the task, the other loses it.
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.todos })
+      qc.invalidateQueries({ queryKey: queryKeys.trash })
+    },
   })
 }
 

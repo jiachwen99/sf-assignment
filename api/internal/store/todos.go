@@ -58,7 +58,7 @@ func (s *Store) CreateTodo(ctx context.Context, n NewTodo) (domain.Todo, error) 
 	return out, wrap("create todo", err)
 }
 
-const selectTodo = `SELECT ` + todoColumns + ` FROM todos WHERE id = $1`
+const selectTodo = `SELECT ` + todoColumns + ` FROM todos WHERE id = $1 AND deleted_at IS NULL`
 
 func (s *Store) Todo(ctx context.Context, id int64) (domain.Todo, error) {
 	rows, err := s.pool.Query(ctx, selectTodo, id)
@@ -72,7 +72,10 @@ func (s *Store) Todo(ctx context.Context, id int64) (domain.Todo, error) {
 	return t, wrap("read todo", err)
 }
 
-const listTodos = `SELECT ` + todoColumns + ` FROM todos ORDER BY created_at DESC, id DESC`
+const listTodos = `
+SELECT ` + todoColumns + `
+FROM todos WHERE deleted_at IS NULL
+ORDER BY created_at DESC, id DESC`
 
 // Unbounded on purpose. Paging, filtering and sorting arrive together in
 // SF-007, where the indexes that make them cheap are designed alongside them.
@@ -94,7 +97,7 @@ SET name = $3, description = $4,
     status = $6, priority = $7,
     recur_unit = $8, recur_interval = $9, recur_anchor = $10::timestamptz,
     version = version + 1, updated_at = now()
-WHERE id = $1 AND version = $2
+WHERE id = $1 AND version = $2 AND deleted_at IS NULL
 RETURNING ` + todoColumns
 
 // The blocking rule and the dependents' counters are settled in the same
@@ -166,7 +169,7 @@ func namedBlockers(ctx context.Context, tx pgx.Tx, id int64, err error) error {
 const searchTodos = `
 SELECT ` + todoColumns + `
 FROM todos
-WHERE name ILIKE '%' || $1 || '%' AND id <> $2
+WHERE name ILIKE '%' || $1 || '%' AND id <> $2 AND deleted_at IS NULL
 ORDER BY name, id
 LIMIT $3`
 
@@ -179,15 +182,59 @@ func (s *Store) SearchTodos(ctx context.Context, term string, excludeID int64, l
 	return out, wrap("search todos", err)
 }
 
+// Soft delete: the row stays and so do its dependency edges, which is the whole
+// point. A dependent of a deleted task stays blocked, because deleting work is
+// not doing it, and restoring puts the chain back exactly rather than roughly.
+const softDeleteTodo = `
+UPDATE todos SET deleted_at = now(), version = version + 1
+WHERE id = $1 AND version = $2 AND deleted_at IS NULL`
+
 func (s *Store) DeleteTodo(ctx context.Context, id int64, version int) error {
-	tag, err := s.pool.Exec(ctx, `DELETE FROM todos WHERE id = $1 AND version = $2`, id, version)
+	tag, err := s.pool.Exec(ctx, softDeleteTodo, id, version)
 	if err != nil {
 		return wrap("delete todo", err)
 	}
 	if tag.RowsAffected() == 0 {
+		// conflictOrNotFound reads through Todo, which is live-only, so an
+		// already-deleted row reports as gone rather than as a conflict.
 		return s.conflictOrNotFound(ctx, id)
 	}
 	return nil
+}
+
+const restoreTodo = `
+UPDATE todos SET deleted_at = NULL, version = version + 1
+WHERE id = $1 AND deleted_at IS NOT NULL
+RETURNING ` + todoColumns
+
+// No version guard. Nothing can edit a task while it is in the trash, so the
+// copy you are restoring is the only copy there has been.
+func (s *Store) RestoreTodo(ctx context.Context, id int64) (domain.Todo, error) {
+	rows, err := s.pool.Query(ctx, restoreTodo, id)
+	if err != nil {
+		return domain.Todo{}, wrap("restore todo", err)
+	}
+	out, err := pgx.CollectExactlyOneRow(rows, pgx.RowToStructByName[domain.Todo])
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Todo{}, domain.ErrNotFound
+	}
+	return out, wrap("restore todo", err)
+}
+
+// Most recently deleted first: the thing you want back is almost always the
+// thing you just lost.
+const listTrash = `
+SELECT ` + todoColumns + `
+FROM todos WHERE deleted_at IS NOT NULL
+ORDER BY deleted_at DESC, id DESC`
+
+func (s *Store) Trash(ctx context.Context) ([]domain.Todo, error) {
+	rows, err := s.pool.Query(ctx, listTrash)
+	if err != nil {
+		return nil, wrap("list trash", err)
+	}
+	out, err := pgx.CollectRows(rows, pgx.RowToStructByName[domain.Todo])
+	return out, wrap("list trash", err)
 }
 
 // A version-guarded write matching nothing means either the row is gone or

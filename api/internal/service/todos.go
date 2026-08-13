@@ -186,3 +186,11 @@ func (s *Service) Search(ctx context.Context, term string, excludeID int64) ([]d
 func (s *Service) Delete(ctx context.Context, id int64, version int) error {
 	return s.store.DeleteTodo(ctx, id, version)
 }
+
+func (s *Service) Restore(ctx context.Context, id int64) (domain.Todo, error) {
+	return s.store.RestoreTodo(ctx, id)
+}
+
+func (s *Service) Trash(ctx context.Context) ([]domain.Todo, error) {
+	return s.store.Trash(ctx)
+}

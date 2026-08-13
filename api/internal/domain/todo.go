@@ -49,6 +49,11 @@ type Blocker struct {
 	ID     int64  `json:"id"`
 	Name   string `json:"name"`
 	Status Status `json:"status"`
+
+	// A deleted task still blocks what waits on it, because deleting work is
+	// not doing it. The chain has to say so, or a task reads as blocked by
+	// something that appears to be finished with.
+	Deleted bool `json:"deleted"`
 }
 
 func (s Status) Valid() bool {
