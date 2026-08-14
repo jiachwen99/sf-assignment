@@ -1,6 +1,15 @@
 import { expect, test, type Page } from '@playwright/test'
 
-import { addDependency, completeTask, createTask, readTask, unique, updateTask } from './api'
+import {
+  API,
+  addDependency,
+  completeTask,
+  createTask,
+  readTask,
+  subscriberCount,
+  unique,
+  updateTask,
+} from './api'
 
 /*
  * The demo path, in the order it gets demonstrated.
@@ -174,6 +183,13 @@ test('two people editing the same task cannot silently overwrite each other', as
 
   // Loading the current version and saving again goes through.
   await myPage.getByTestId('conflict-reload').click()
+
+  // Wait for the loaded values to arrive before touching them. Loading
+  // replaces the whole form, so a selection made in the instant before it
+  // commits is discarded by the render that follows, and the save would send
+  // what was loaded rather than what was chosen.
+  await expect(myPage.getByTestId('todo-priority')).toHaveValue('high')
+
   await myPage.getByTestId('todo-priority').selectOption('low')
   await myPage.getByTestId('todo-save').click()
   await expect(myPage.getByTestId('conflict-banner')).toBeHidden()
@@ -225,3 +241,61 @@ async function countIn(page: Page, testId: string): Promise<number> {
   const text = await page.getByTestId(testId).innerText()
   return Number(text.replace(/[^\d]/g, ''))
 }
+
+test('a change in one browser appears in another without a refresh', async ({
+  browser,
+  request,
+}) => {
+  const name = unique('live')
+
+  const [watching, working] = await Promise.all([browser.newContext(), browser.newContext()])
+  const [watcher, worker] = await Promise.all([watching.newPage(), working.newPage()])
+
+  // Both looking at the same filtered view, which is empty to begin with.
+  const url = `/?name=${encodeURIComponent(name)}`
+  await watcher.goto(url)
+  await worker.goto(url)
+  await expect(watcher.getByTestId('todo-row')).toHaveCount(0)
+
+  // Created over HTTP: what matters is that the change reaches a page nobody
+  // touched, not which client made it.
+  const task = await createTask(request, { name, priority: 'high' })
+  await expect(watcher.getByTestId('todo-row')).toHaveCount(1)
+
+  // And an edit reaches it too, so this is not just the first load arriving
+  // late. Asserted on the row rather than on it disappearing: the filter
+  // matches anywhere in the name, so a renamed task would still be listed.
+  await expect(watcher.getByTestId('todo-row')).toContainText('Not started')
+  await updateTask(request, task, { status: 'in_progress' })
+  await expect(watcher.getByTestId('todo-row')).toContainText('In progress')
+
+  await Promise.all([watching.close(), working.close()])
+})
+
+/*
+ * A leaked subscription is invisible until the process runs out of memory,
+ * which is far too late to find out, so it is asserted rather than assumed.
+ *
+ * The stream is opened against the API directly rather than through the page,
+ * because the dev server proxies it and does not pass the client's disconnect
+ * upstream: closing a browser leaves the proxy holding a live socket, and the
+ * API cannot tell the difference. That is a dev-server limitation rather than
+ * a property of the hub, and testing through it would assert the proxy's
+ * behaviour instead of this application's.
+ */
+test('a client that goes away releases its subscription', async ({ request }) => {
+  const before = await subscriberCount(request)
+
+  const stream = new AbortController()
+  const opened = fetch(`${API}/api/events`, { signal: stream.signal })
+  await expect
+    .poll(() => subscriberCount(request), { message: 'the client should have subscribed' })
+    .toBe(before + 1)
+
+  stream.abort()
+  await opened.catch(() => {})
+
+  await expect
+    .poll(() => subscriberCount(request), { message: 'the subscription should be released' })
+    .toBe(before)
+})

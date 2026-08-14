@@ -14,9 +14,10 @@ export default defineConfig({
       '/api': {
         target: process.env.API_URL ?? 'http://localhost:8080',
         changeOrigin: true,
-        // Without this the proxy buffers the event stream and nothing
-        // arrives until the connection closes.
         configure: (proxy) => {
+          // Without this the proxy buffers the event stream and nothing arrives
+          // until the connection closes, which looks exactly like the feature
+          // not working rather than like a proxy setting.
           proxy.on('proxyRes', (proxyRes) => {
             if (proxyRes.headers['content-type']?.includes('text/event-stream')) {
               proxyRes.headers['x-accel-buffering'] = 'no'

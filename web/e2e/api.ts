@@ -9,7 +9,7 @@ import type { APIRequestContext } from '@playwright/test'
  * over and puts the failure a long way from the thing under test.
  */
 
-const API = process.env.API_URL ?? 'http://localhost:8080'
+export const API = process.env.API_URL ?? 'http://localhost:8080'
 
 export type Task = {
   id: number
@@ -87,4 +87,11 @@ export async function readTask(request: APIRequestContext, id: number): Promise<
  */
 export function unique(label: string) {
   return `e2e ${label} ${Date.now()}${Math.floor(Math.random() * 1000)}`
+}
+
+// Read from the API rather than through the dev server, because the count lives
+// in the process that holds the subscriptions.
+export async function subscriberCount(request: APIRequestContext): Promise<number> {
+  const res = await request.get(`${API}/healthz`)
+  return (await res.json()).subscribers
 }

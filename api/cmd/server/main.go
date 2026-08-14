@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jiachwen99/sf-assignment/api/internal/api"
+	"github.com/jiachwen99/sf-assignment/api/internal/events"
 	"github.com/jiachwen99/sf-assignment/api/internal/service"
 	"github.com/jiachwen99/sf-assignment/api/internal/store"
 )
@@ -41,9 +42,11 @@ func run(log *slog.Logger) error {
 	}
 	log.Info("migrations applied")
 
+	hub := events.NewHub()
+
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           api.NewServer(service.New(st), log),
+		Handler:           api.NewServer(service.New(st, hub), hub, log),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

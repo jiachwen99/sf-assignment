@@ -9,6 +9,7 @@ import { TaskList, TaskListSkeleton } from './components/TaskList'
 import { TrashList } from './components/TrashList'
 import { ViewRail } from './components/ViewRail'
 import { Button } from './components/ui/Button'
+import { useEvents } from './hooks/useEvents'
 import { useInfiniteScroll } from './hooks/useInfiniteScroll'
 import { DEFAULT_DIR, DEFAULT_SORT, queryFromURL, urlFromQuery } from './lib/url'
 import { queryForView, viewFromQuery, viewTitle } from './lib/views'
@@ -32,6 +33,9 @@ export function App() {
   const view = viewFromQuery(query)
 
   const sentinel = useInfiniteScroll(Boolean(hasNextPage) && !isFetchingNextPage, fetchNextPage)
+
+  // Anybody else's change refreshes what is on screen, without a reload.
+  useEvents()
 
   // Written on change rather than read on render, so the URL follows the list
   // instead of the two arguing about which one is authoritative.

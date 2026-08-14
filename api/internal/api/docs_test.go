@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/jiachwen99/sf-assignment/api/internal/events"
 )
 
 /*
@@ -43,7 +45,7 @@ func TestSpecAndRoutesAgree(t *testing.T) {
 	}
 
 	served := map[string]bool{}
-	for _, route := range NewServer(nil, slog.Default()).Routes() {
+	for _, route := range NewServer(nil, events.NewHub(), slog.Default()).Routes() {
 		method, path, _ := strings.Cut(route, " ")
 		if describesItself(path) {
 			continue
@@ -82,7 +84,7 @@ func shape(path string) string {
 }
 
 func TestSpecIsServedAndTheDocsPageLoads(t *testing.T) {
-	srv := NewServer(nil, slog.Default())
+	srv := NewServer(nil, events.NewHub(), slog.Default())
 
 	for _, path := range []string{"/openapi.yaml", "/docs"} {
 		rec := httptest.NewRecorder()

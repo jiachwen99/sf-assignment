@@ -316,6 +316,30 @@ paths:
               schema: { $ref: "#/components/schemas/Chain" }
         "400": { $ref: "#/components/responses/Invalid" }
 
+  /events:
+    get:
+      tags: [History]
+      summary: Subscribe to changes
+      description: |
+        A server-sent event stream. Each `change` event names the task and what
+        happened to it, and carries nothing else: the client refetches rather
+        than applying a payload, so a dropped or out-of-order event corrects
+        itself on the next one.
+
+        Comment lines arrive on connect and every twenty seconds after, which
+        keeps intermediaries from closing an idle connection.
+      responses:
+        "200":
+          description: An open stream, until the client disconnects
+          content:
+            text/event-stream:
+              schema: { type: string }
+              example: |
+                : connected
+
+                event: change
+                data: {"todoId":42,"kind":"completed"}
+
   /todos/{id}/events:
     parameters:
       - $ref: "#/components/parameters/TaskID"

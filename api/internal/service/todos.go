@@ -6,15 +6,27 @@ import (
 	"time"
 
 	"github.com/jiachwen99/sf-assignment/api/internal/domain"
+	"github.com/jiachwen99/sf-assignment/api/internal/events"
 	"github.com/jiachwen99/sf-assignment/api/internal/store"
 )
 
 type Service struct {
 	store *store.Store
+	hub   *events.Hub
 }
 
-func New(s *store.Store) *Service {
-	return &Service{store: s}
+func New(s *store.Store, hub *events.Hub) *Service {
+	return &Service{store: s, hub: hub}
+}
+
+// Called after the store call returns, which is after its transaction
+// committed. Publishing from inside one can deliver a change to a client that
+// refetches and reads the old data, because the change is not visible yet.
+func (s *Service) published(id int64, kind string, err error) error {
+	if err == nil {
+		s.hub.Publish(events.Change{TodoID: id, Kind: kind})
+	}
+	return err
 }
 
 type TodoInput struct {
@@ -74,7 +86,7 @@ func (s *Service) Create(ctx context.Context, in TodoInput) (domain.Todo, error)
 	if err := in.normaliseAndValidate(); err != nil {
 		return domain.Todo{}, err
 	}
-	return s.store.CreateTodo(ctx, store.NewTodo{
+	created, err := s.store.CreateTodo(ctx, store.NewTodo{
 		Name:        in.Name,
 		Description: in.Description,
 		DueDate:     in.DueDate,
@@ -84,6 +96,7 @@ func (s *Service) Create(ctx context.Context, in TodoInput) (domain.Todo, error)
 		RecurEvery:  in.RecurEvery,
 		RecurAnchor: anchorFor(in),
 	})
+	return created, s.published(created.ID, "created", err)
 }
 
 func (s *Service) Todo(ctx context.Context, id int64) (domain.Todo, error) {
@@ -123,7 +136,7 @@ func (s *Service) Update(ctx context.Context, id int64, version int, in TodoInpu
 		anchor = anchorFor(in)
 	}
 
-	return s.store.UpdateTodo(ctx, store.TodoUpdate{
+	updated, err := s.store.UpdateTodo(ctx, store.TodoUpdate{
 		ID:          id,
 		Version:     version,
 		Name:        in.Name,
@@ -135,6 +148,7 @@ func (s *Service) Update(ctx context.Context, id int64, version int, in TodoInpu
 		RecurEvery:  in.RecurEvery,
 		RecurAnchor: anchor,
 	})
+	return updated, s.published(id, "updated", err)
 }
 
 // A schedule with no date has nothing to count from. The task still repeats in
@@ -148,7 +162,13 @@ func anchorFor(in TodoInput) *time.Time {
 }
 
 func (s *Service) Complete(ctx context.Context, id int64, version int) (store.CompleteResult, error) {
-	return s.store.Complete(ctx, id, version, time.Now().UTC())
+	res, err := s.store.Complete(ctx, id, version, time.Now().UTC())
+	if err == nil && res.Spawned != nil {
+		// Two tasks changed, so two changes. A client watching only the new
+		// occurrence still hears about it.
+		s.hub.Publish(events.Change{TodoID: res.Spawned.ID, Kind: "spawned"})
+	}
+	return res, s.published(id, "completed", err)
 }
 
 func (s *Service) Dependencies(ctx context.Context, id int64) ([]domain.Blocker, error) {
@@ -160,11 +180,11 @@ func (s *Service) Dependents(ctx context.Context, id int64) ([]domain.Blocker, e
 }
 
 func (s *Service) AddDependency(ctx context.Context, id, dependsOnID int64) error {
-	return s.store.AddDependency(ctx, id, dependsOnID)
+	return s.published(id, "linked", s.store.AddDependency(ctx, id, dependsOnID))
 }
 
 func (s *Service) RemoveDependency(ctx context.Context, id, dependsOnID int64) error {
-	return s.store.RemoveDependency(ctx, id, dependsOnID)
+	return s.published(id, "unlinked", s.store.RemoveDependency(ctx, id, dependsOnID))
 }
 
 // The floor and the ceiling both belong here rather than at the HTTP edge: the
@@ -184,11 +204,12 @@ func (s *Service) Search(ctx context.Context, term string, excludeID int64) ([]d
 }
 
 func (s *Service) Delete(ctx context.Context, id int64, version int) error {
-	return s.store.DeleteTodo(ctx, id, version)
+	return s.published(id, "deleted", s.store.DeleteTodo(ctx, id, version))
 }
 
 func (s *Service) Restore(ctx context.Context, id int64) (domain.Todo, error) {
-	return s.store.RestoreTodo(ctx, id)
+	restored, err := s.store.RestoreTodo(ctx, id)
+	return restored, s.published(id, "restored", err)
 }
 
 func (s *Service) Events(ctx context.Context, id int64) ([]store.Event, error) {

@@ -5,11 +5,13 @@ import (
 	"net/http"
 	"sort"
 
+	"github.com/jiachwen99/sf-assignment/api/internal/events"
 	"github.com/jiachwen99/sf-assignment/api/internal/service"
 )
 
 type Server struct {
 	svc    *service.Service
+	hub    *events.Hub
 	log    *slog.Logger
 	mux    *http.ServeMux
 	routes []string
@@ -20,11 +22,13 @@ type Server struct {
 // The routes are collected as they are registered rather than listed a second
 // time beside the registrations, because two lists is exactly how they start to
 // disagree. The parity test compares this against the specification.
-func NewServer(svc *service.Service, log *slog.Logger) *Server {
-	s := &Server{svc: svc, log: log, mux: http.NewServeMux()}
+func NewServer(svc *service.Service, hub *events.Hub, log *slog.Logger) *Server {
+	s := &Server{svc: svc, hub: hub, log: log, mux: http.NewServeMux()}
 
+	// The subscriber count is here so a test can assert that connections are
+	// released rather than waiting to see whether memory grows.
 	s.handle("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
+		writeJSON(w, http.StatusOK, map[string]any{"subscribers": hub.Subscribers()})
 	})
 
 	s.handle("GET /api/todos", s.listTodos)
@@ -33,6 +37,8 @@ func NewServer(svc *service.Service, log *slog.Logger) *Server {
 	s.handle("PUT /api/todos/{id}", s.updateTodo)
 	s.handle("DELETE /api/todos/{id}", s.deleteTodo)
 	s.handle("POST /api/todos/{id}/complete", s.completeTodo)
+
+	s.handle("GET /api/events", s.stream)
 
 	s.handle("GET /api/todos/search", s.searchTodos)
 	s.handle("GET /api/todos/counts", s.counts)

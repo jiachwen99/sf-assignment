@@ -3,6 +3,10 @@ import { defineConfig, devices } from '@playwright/test'
 export default defineConfig({
   testDir: './e2e',
 
+  // Compiles the front end once before anything is measured, so no test pays
+  // for a cold dev server. See e2e/warmup.ts.
+  globalSetup: './e2e/warmup.ts',
+
   // One worker, in order. The tests share a database, and the demo path is a
   // sequence rather than a set of independent assertions.
   fullyParallel: false,
