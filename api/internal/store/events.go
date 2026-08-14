@@ -25,16 +25,39 @@ const (
 )
 
 type Event struct {
-	ID        int64           `db:"id" json:"id"`
-	TodoID    int64           `db:"todo_id" json:"todoId"`
-	Kind      EventKind       `db:"kind" json:"kind"`
-	Payload   json.RawMessage `db:"payload" json:"payload"`
-	CreatedAt time.Time       `db:"created_at" json:"createdAt"`
+	ID      int64           `db:"id" json:"id"`
+	TodoID  int64           `db:"todo_id" json:"todoId"`
+	Kind    EventKind       `db:"kind" json:"kind"`
+	Payload json.RawMessage `db:"payload" json:"payload"`
+	// Null for a change made while nobody was signed in, which is every change
+	// the application made before authentication existed.
+	ActorID   *int64    `db:"actor_id" json:"actorId"`
+	CreatedAt time.Time `db:"created_at" json:"createdAt"`
+}
+
+/*
+ * Who is making the change, carried on the context.
+ *
+ * The alternative is an actor argument on every store method, which would put
+ * an authentication concern in the signature of every write whether or not that
+ * write records anything. A context value is the narrower change.
+ */
+type actorKey struct{}
+
+func WithActor(ctx context.Context, id int64) context.Context {
+	return context.WithValue(ctx, actorKey{}, id)
+}
+
+func actorFrom(ctx context.Context) *int64 {
+	if id, ok := ctx.Value(actorKey{}).(int64); ok {
+		return &id
+	}
+	return nil
 }
 
 const insertEvent = `
-INSERT INTO todo_events (todo_id, kind, payload)
-VALUES ($1, $2, $3)`
+INSERT INTO todo_events (todo_id, kind, payload, actor_id)
+VALUES ($1, $2, $3, $4)`
 
 // Takes the caller's transaction rather than the pool, so an event cannot
 // survive a rollback of the change it describes.
@@ -43,12 +66,12 @@ func record(ctx context.Context, tx pgx.Tx, todoID int64, kind EventKind, payloa
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, insertEvent, todoID, kind, body)
+	_, err = tx.Exec(ctx, insertEvent, todoID, kind, body, actorFrom(ctx))
 	return err
 }
 
 const selectEvents = `
-SELECT id, todo_id, kind, payload, created_at
+SELECT id, todo_id, kind, payload, actor_id, created_at
 FROM todo_events WHERE todo_id = $1 ORDER BY id`
 
 func (s *Store) Events(ctx context.Context, todoID int64) ([]Event, error) {

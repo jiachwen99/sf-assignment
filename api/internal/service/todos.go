@@ -212,8 +212,67 @@ func (s *Service) Restore(ctx context.Context, id int64) (domain.Todo, error) {
 	return restored, s.published(id, "restored", err)
 }
 
-func (s *Service) Events(ctx context.Context, id int64) ([]store.Event, error) {
-	return s.store.Events(ctx, id)
+func (s *Service) Register(ctx context.Context, email, name, password string) (store.User, error) {
+	return s.store.CreateUser(ctx, email, name, password)
+}
+
+func (s *Service) Login(ctx context.Context, email, password string) (store.User, error) {
+	return s.store.Authenticate(ctx, email, password)
+}
+
+func (s *Service) StartSession(ctx context.Context, userID int64) (string, time.Time, error) {
+	return s.store.CreateSession(ctx, userID)
+}
+
+func (s *Service) EndSession(ctx context.Context, token string) error {
+	return s.store.DeleteSession(ctx, token)
+}
+
+func (s *Service) UserForSession(ctx context.Context, token string) (store.User, error) {
+	return s.store.UserForSession(ctx, token)
+}
+
+// The history carries actor ids; the panel wants names. Resolved in one query
+// for the whole log rather than one per entry.
+type EventWithActor struct {
+	store.Event
+	Actor *string `json:"actor"`
+}
+
+func (s *Service) Events(ctx context.Context, id int64) ([]EventWithActor, error) {
+	events, err := s.store.Events(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	ids := make([]int64, 0, len(events))
+	for _, e := range events {
+		if e.ActorID != nil {
+			ids = append(ids, *e.ActorID)
+		}
+	}
+
+	names := map[int64]string{}
+	if len(ids) > 0 {
+		users, err := s.store.UsersByID(ctx, ids)
+		if err != nil {
+			return nil, err
+		}
+		for _, u := range users {
+			names[u.ID] = u.Name
+		}
+	}
+
+	out := make([]EventWithActor, len(events))
+	for i, e := range events {
+		out[i] = EventWithActor{Event: e}
+		if e.ActorID != nil {
+			if name, ok := names[*e.ActorID]; ok {
+				out[i].Actor = &name
+			}
+		}
+	}
+	return out, nil
 }
 
 func (s *Service) Counts(ctx context.Context) (store.Counts, error) {

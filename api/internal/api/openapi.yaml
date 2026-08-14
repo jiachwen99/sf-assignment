@@ -30,6 +30,7 @@ tags:
   - name: Tasks
   - name: Dependencies
   - name: History
+  - name: Accounts
 
 paths:
   /todos:
@@ -316,6 +317,89 @@ paths:
               schema: { $ref: "#/components/schemas/Chain" }
         "400": { $ref: "#/components/responses/Invalid" }
 
+  /auth/register:
+    post:
+      tags: [Accounts]
+      summary: Create an account
+      description: Signs in on success, so there is no separate step afterwards.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, name, password]
+              properties:
+                email: { type: string, format: email }
+                name: { type: string, minLength: 1 }
+                password:
+                  type: string
+                  minLength: 8
+                  description: Length only. Composition rules push people towards worse passwords
+      responses:
+        "201":
+          description: The account, and a session cookie
+          headers:
+            Set-Cookie:
+              schema: { type: string }
+              description: HttpOnly, SameSite=Lax, seven days
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "400": { $ref: "#/components/responses/Invalid" }
+
+  /auth/login:
+    post:
+      tags: [Accounts]
+      summary: Sign in
+      description: |
+        An unknown address and a wrong password give the same answer, and take
+        the same time. Telling them apart would turn this into a way of finding
+        out which addresses are registered.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+      responses:
+        "200":
+          description: The account, and a session cookie
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "400": { $ref: "#/components/responses/Invalid" }
+
+  /auth/logout:
+    post:
+      tags: [Accounts]
+      summary: Sign out
+      description: Ends the session and clears the cookie. Safe to call when not signed in.
+      responses:
+        "204": { description: Signed out }
+
+  /auth/me:
+    get:
+      tags: [Accounts]
+      summary: Who is signed in
+      description: |
+        Null when nobody is, rather than an error. Not being signed in is a
+        state the application supports: accounts supply identity, never
+        separation, and every account sees the same tasks.
+      responses:
+        "200":
+          description: The account, or null
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/User"
+                  - type: "null"
+
   /events:
     get:
       tags: [History]
@@ -446,6 +530,14 @@ components:
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
 
+    User:
+      type: object
+      required: [id, email, name]
+      properties:
+        id: { type: integer, format: int64 }
+        email: { type: string, format: email }
+        name: { type: string }
+
     Link:
       type: object
       required: [id, name, status, deleted]
@@ -481,7 +573,7 @@ components:
 
     Event:
       type: object
-      required: [id, todoId, kind, payload, createdAt]
+      required: [id, todoId, kind, payload, actorId, actor, createdAt]
       properties:
         id: { type: integer, format: int64 }
         todoId: { type: integer, format: int64 }
@@ -498,6 +590,12 @@ components:
             `spawnedDueDate`; the occurrence it created carries `from` and
             `fromName`; a dependency change carries `dependsOn` and
             `dependsOnName`.
+        actorId:
+          oneOf: [{ type: integer, format: int64 }, { type: "null" }]
+          description: Who made the change, or null if nobody was signed in
+        actor:
+          oneOf: [{ type: string }, { type: "null" }]
+          description: That account's name, resolved for display
         createdAt: { type: string, format: date-time }
 
     Error:

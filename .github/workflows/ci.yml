@@ -54,6 +54,20 @@ jobs:
         with:
           bun-version: "1.3"
 
+      # Before the stack, and that order matters. The web service mounts a named
+      # volume at /app/node_modules, which sits inside the ./web bind mount, so
+      # its mount point is the host's web/node_modules. If Docker gets there
+      # first it creates that directory as root and this step then fails with
+      # EACCES. Installing first means the directory already exists, owned by
+      # the runner, and Docker mounts over it without touching ownership.
+      - name: Install
+        working-directory: web
+        run: bun install --frozen-lockfile
+
+      - name: Install the browser
+        working-directory: web
+        run: bunx playwright install --with-deps chromium
+
       - name: Start the stack
         run: docker compose up -d --build
 
@@ -71,14 +85,6 @@ jobs:
         run: go run ./cmd/seed -n 10000
         env:
           DATABASE_URL: postgres://todo:todo@localhost:5432/todo?sslmode=disable
-
-      - name: Install
-        working-directory: web
-        run: bun install --frozen-lockfile
-
-      - name: Install the browser
-        working-directory: web
-        run: bunx playwright install --with-deps chromium
 
       - name: Run the demo path
         working-directory: web

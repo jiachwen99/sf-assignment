@@ -198,7 +198,7 @@ func (s *Server) todoEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if events == nil {
-		events = []store.Event{}
+		events = []service.EventWithActor{}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": events})
 }

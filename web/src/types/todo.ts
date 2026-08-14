@@ -32,6 +32,9 @@ export type TaskEvent = {
   todoId: number
   kind: string
   payload: Record<string, unknown> | null
+  // Who made the change, or null for one made while nobody was signed in.
+  actorId: number | null
+  actor: string | null
   createdAt: string
 }
 

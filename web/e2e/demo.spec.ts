@@ -299,3 +299,66 @@ test('a client that goes away releases its subscription', async ({ request }) =>
     .poll(() => subscriberCount(request), { message: 'the subscription should be released' })
     .toBe(before)
 })
+
+test('two accounts see the same list, and the history says who did what', async ({
+  browser,
+  request,
+}) => {
+  const label = unique('shared')
+  const stamp = Date.now()
+
+  const [firstContext, secondContext] = await Promise.all([
+    browser.newContext(),
+    browser.newContext(),
+  ])
+  const [priya, marcus] = await Promise.all([firstContext.newPage(), secondContext.newPage()])
+
+  await register(priya, `priya-${stamp}@example.com`, 'Priya')
+  await register(marcus, `marcus-${stamp}@example.com`, 'Marcus')
+  await expect(priya.getByTestId('current-user')).toHaveText('Priya')
+  await expect(marcus.getByTestId('current-user')).toHaveText('Marcus')
+
+  // Priya writes a task. Accounts supply identity, never separation, so it is
+  // Marcus's task too: an account that could not see it would contradict the
+  // requirement that users share one list.
+  await priya.goto(`/?name=${encodeURIComponent(label)}`)
+  await priya.getByTestId('new-todo').click()
+  await priya.getByTestId('todo-name').fill(`${label} shared task`)
+  await priya.getByTestId('todo-save').click()
+  await expect(priya.getByTestId('todo-row')).toHaveCount(1)
+
+  await marcus.goto(`/?name=${encodeURIComponent(label)}`)
+  await expect(marcus.getByTestId('todo-row')).toHaveCount(1)
+
+  // Marcus edits it, and the history names them both.
+  await marcus.getByTestId('todo-row').first().click()
+  await marcus.getByTestId('todo-priority').selectOption('high')
+  await marcus.getByTestId('todo-save').click()
+
+  await marcus.getByTestId('todo-row').first().click()
+  const history = marcus.getByTestId('task-history')
+  await expect(history).toContainText('Priya')
+  await expect(history).toContainText('Marcus')
+
+  await Promise.all([firstContext.close(), secondContext.close()])
+})
+
+// A change made by nobody says so, rather than leaving a blank where a name
+// would be.
+test('a change made while signed out is recorded as unattributed', async ({ page, request }) => {
+  const name = unique('anon')
+  await createTask(request, { name })
+
+  await openTaskNamed(page, name)
+  await expect(page.getByTestId('task-history')).toContainText('Not signed in')
+})
+
+async function register(page: Page, email: string, name: string) {
+  await page.goto('/')
+  await page.getByTestId('open-login').click()
+  await page.getByTestId('tab-register').click()
+  await page.getByTestId('register-name').fill(name)
+  await page.getByTestId('auth-email').fill(email)
+  await page.getByTestId('auth-password').fill('a long enough password')
+  await page.getByTestId('register-submit').click()
+}

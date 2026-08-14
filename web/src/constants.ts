@@ -36,5 +36,6 @@ export const queryKeys = {
   trash: ['trash'],
   dependencies: (id: number) => ['todos', id, 'dependencies'],
   events: (id: number) => ['todos', id, 'events'],
+  currentUser: ['auth', 'me'],
   search: (term: string, excludeId: number) => ['todos', 'search', term, excludeId],
 }

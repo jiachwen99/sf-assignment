@@ -38,6 +38,11 @@ func NewServer(svc *service.Service, hub *events.Hub, log *slog.Logger) *Server 
 	s.handle("DELETE /api/todos/{id}", s.deleteTodo)
 	s.handle("POST /api/todos/{id}/complete", s.completeTodo)
 
+	s.handle("POST /api/auth/register", s.register)
+	s.handle("POST /api/auth/login", s.login)
+	s.handle("POST /api/auth/logout", s.logout)
+	s.handle("GET /api/auth/me", s.currentUser)
+
 	s.handle("GET /api/events", s.stream)
 
 	s.handle("GET /api/todos/search", s.searchTodos)
@@ -62,8 +67,10 @@ func (s *Server) handle(pattern string, handler http.HandlerFunc) {
 	s.mux.HandleFunc(pattern, handler)
 }
 
+// Every request passes through session resolution, so any write that records
+// an event can name who made it without each handler remembering to look.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	s.mux.ServeHTTP(w, r)
+	s.withSession(s.mux).ServeHTTP(w, r)
 }
 
 // Routes returns every pattern the server serves, sorted.

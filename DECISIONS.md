@@ -48,7 +48,7 @@ completing a task unblocks its dependents.
 Go, React, PostgreSQL. Four layers, dependencies pointing one way. Diagrams in
 [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
-**Raw SQL over an ORM.** Three tables, twenty-six statements. `RowToStructByName`
+**Raw SQL over an ORM.** Five tables, thirty-two statements. `RowToStructByName`
 removes the boilerplate that usually justifies an ORM, and the list query has to
 be hand-written anyway, because that is where the index lives. An ORM would have
 meant two mechanisms instead of one.

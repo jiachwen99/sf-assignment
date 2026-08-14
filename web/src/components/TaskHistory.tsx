@@ -7,8 +7,8 @@ import { describeDue } from '../lib/dates'
  *
  * Every change is already written inside the transaction that made it, which
  * makes this the only place in the interface that can answer "what happened to
- * this task". A log nothing reads is how the function that snapshots a name
- * ends up dead, so the panel lands in the same ticket as the table.
+ * this task, and who did it". Signing in exists to fill that second line; if
+ * nothing ever read the log, attributing changes would be pointless.
  *
  * Each row says what changed rather than naming an event kind, because
  * "status_changed" is the system's word and "Not started to In progress" is the
@@ -137,6 +137,10 @@ export function TaskHistory({
                 </span>
               </div>
               {line && <p className="truncate text-[12px] text-ink-soft">{line}</p>}
+              {/* Says nobody rather than saying nothing, because a blank line
+                  reads as a rendering fault rather than as an unattributed
+                  change. Everything recorded before accounts existed is one. */}
+              <p className="text-[11px] text-ink-faint">{event.actor ?? 'Not signed in'}</p>
               {link && (
                 <button
                   type="button"

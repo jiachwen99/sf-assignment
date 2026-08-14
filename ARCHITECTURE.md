@@ -4,7 +4,7 @@ Go API, React front end, PostgreSQL. Four layers on the server, and one rule tha
 
 GitHub renders the diagrams below in place. SF-017 also exports them as images, for viewers that do not.
 
-The diagrams describe what is built. Real-time updates and authentication are optional and last in the cut ladder, so nothing here shows them until they exist.
+The diagrams describe what is built. Bulk operations are optional and not built yet, so nothing here shows them.
 
 ```mermaid
 flowchart TB
@@ -18,14 +18,17 @@ flowchart TB
     svc["service/<br/>transactions and orchestration"]
     dom["domain/<br/>pure rules"]
     store["store/<br/>all SQL"]
+    hub["events/<br/>in-process SSE hub"]
   end
 
   db[("PostgreSQL")]
 
-  ui -->|"HTTP"| http
+  ui -->|"HTTP, and an open event stream"| http
   http --> svc
   svc --> dom
   svc --> store
+  svc --> hub
+  hub -.->|"published after commit"| http
   store --> db
 ```
 
@@ -49,6 +52,8 @@ I did not add interfaces. `service` takes a concrete `*store.Store`. An interfac
 erDiagram
   todos ||--o{ todo_dependencies : "depends on"
   todos ||--o{ todo_events : "records"
+  users ||--o{ todo_events : "actor"
+  users ||--o{ sessions : "holds"
 
   todos {
     bigint id PK
@@ -68,16 +73,28 @@ erDiagram
     bigint todo_id FK
     bigint depends_on_id FK
   }
+  users {
+    bigint id PK
+    text email "unique, case-insensitive"
+    text name
+    text password_hash "bcrypt"
+  }
+  sessions {
+    text token PK
+    bigint user_id FK
+    timestamptz expires_at
+  }
   todo_events {
     bigint id PK
     bigint todo_id FK
     text kind
     jsonb payload
+    bigint actor_id FK "nullable, SET NULL on delete"
     timestamptz created_at
   }
 ```
 
-Three tables, and two of them are obvious. The columns that are not obvious are the ones worth explaining, because each exists to solve a specific problem.
+Five tables, and three of them are obvious. The columns that are not obvious are the ones worth explaining, because each exists to solve a specific problem.
 
 ### `due_sort`
 
@@ -182,6 +199,8 @@ Every one below is partial on `deleted_at IS NULL`, so the ordinary list never w
 | `todos_name_trgm`, a trigram GIN | substring search, the one query that is not a seek |
 | `todo_dependencies (depends_on_id)` | what depends on a task, for the warning before deleting a blocker |
 | `todo_events (todo_id, id)` | one task's history in order, the only way it is read |
+| `users (lower(email))`, unique | signing in, and case-insensitive uniqueness without citext |
+| `sessions (user_id)` | ending every session an account holds |
 
 Blocked gets two partial indexes rather than one composite leading with `unmet_deps_count`. A composite does serve the filter, but blocked is the range predicate `> 0`, and a range on the leading column does not preserve ordering on the columns after it: the planner uses the index and then adds a sort, which is what keyset pagination exists to avoid. Moving the predicate into the index leaves `(created_at, id)` as the whole key, so the ordering comes free and each index holds only the rows it serves.
 

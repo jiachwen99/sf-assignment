@@ -37,6 +37,14 @@ services:
       - "5173:5173"
     volumes:
       - ./web:/app
+      # node_modules is a named volume rather than part of the bind mount,
+      # because the container installs Linux binaries and the host may not be
+      # Linux. Sharing one directory would leave whichever ran last broken.
+      #
+      # The cost: its mount point is the host's web/node_modules, and if Docker
+      # creates that directory it does so as root. Run `bun install` on the host
+      # before `docker compose up` on a fresh clone, or the host install
+      # afterwards fails with EACCES. The CI job installs first for this reason.
       - web-modules:/app/node_modules
     depends_on:
       - api

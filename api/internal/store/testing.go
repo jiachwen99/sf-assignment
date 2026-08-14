@@ -62,7 +62,10 @@ func NewTestStore(t *testing.T) *Store {
 	if err := s.Migrate(ctx); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
-	if _, err := s.pool.Exec(ctx, `TRUNCATE todos RESTART IDENTITY CASCADE`); err != nil {
+	// Both roots, because CASCADE follows references rather than reaching
+	// sideways: truncating todos alone leaves accounts behind, and the next
+	// test to register the same address is refused as a duplicate.
+	if _, err := s.pool.Exec(ctx, `TRUNCATE todos, users RESTART IDENTITY CASCADE`); err != nil {
 		t.Fatalf("truncate: %v", err)
 	}
 	return s

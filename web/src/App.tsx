@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 
 import { request } from './api/client'
 import { useCounts, useRestoreTodo, useTodos, useTrash } from './api/todos'
+import { AccountMenu } from './components/AccountMenu'
 import { EmptyState } from './components/EmptyState'
 import { FilterRow } from './components/FilterRow'
 import { TaskDetail } from './components/TaskDetail'
@@ -90,6 +91,8 @@ export function App() {
           >
             {inTrash ? 'Back to tasks' : `Trash${counts?.trash ? ` (${counts.trash})` : ''}`}
           </Button>
+
+          <AccountMenu />
 
           {!inTrash && (
             <Button variant="primary" onClick={() => setSelection('new')} data-testid="new-todo">
