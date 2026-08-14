@@ -93,7 +93,7 @@ TanStack Query is used because the update stream needs a cache to invalidate. Wr
 
 All list state lives in the URL: filters, sort, cursor, selection.
 
-Mantine supplies the primitives and the default theme is used unmodified. Components compose Mantine rather than wrapping it. A house component layer on top of a component library is the abstraction this project least needs.
+Styling is Tailwind v4 with the palette declared as tokens in `@theme`. There is no component library: `components/ui/` holds ten hand-built primitives, and every screen composes those rather than restyling raw elements. The rule is that a colour, a size or a spacing value used twice belongs in a token or a primitive, never pasted.
 
 No `React.FC`. No `useCallback` or `useMemo` without a measured reason. Props are typed inline for single-use components rather than given a named interface above every one. No barrel files.
 

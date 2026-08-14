@@ -79,9 +79,9 @@ client holds the query until three characters, which keeps the least selective
 searches off the database entirely.
 
 **The counts query is the outlier, and it has to be.** A count must see every
-matching row, so the partial indexes that make the list cheap do not help. It
-went from 6ms to 43ms with the data, roughly linearly, which is the expected
-shape for a scan. That is the argument for asking once and holding the answer
+matching row, so the partial indexes that make the list cheap do not help. Its
+median went from 5.0ms to 31.1ms with the data, roughly linearly, which is the
+expected shape for a scan. That is the argument for asking once and holding the answer
 for thirty seconds on the client rather than recounting after every keystroke.
 
 **Blocked with a sort is not the worst case the plan predicted.** The plan named
@@ -99,5 +99,6 @@ Three limits worth naming rather than leaving for someone to find.
 - **The blocked partial indexes follow the default sort only.** Combined with
   another sort the planner falls back to filtering, which is cheap here and
   would not be if blocked were rare.
-- **Counts grows with the table.** At ten million rows a 43ms scan becomes a
-  problem, and the answer is a maintained summary rather than a longer cache.
+- **Counts grows with the table.** At ten million rows a scan that already takes
+  31ms at the median becomes a problem, and the answer is a maintained summary
+  rather than a longer cache.

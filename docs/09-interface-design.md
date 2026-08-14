@@ -163,6 +163,13 @@ history records who did what.*
 list it acts on, rather than parked in the header where it would be a permanent
 control for an occasional job.*
 
+![The trash](images/05-trash.png)
+
+*Deleting is soft, so the trash is a plain list with one action per row. It is a
+place you go to undo something, not somewhere you work, which is why it has no
+filters, no sorting and no selection — and why the query behind it returns the
+hundred most recently deleted rather than everything.*
+
 ![The blocked view at seeded scale](images/03-blocked-filter.png)
 
 *The blocked view against twenty thousand seeded tasks. Overdue dates are red

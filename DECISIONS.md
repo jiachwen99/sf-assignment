@@ -1,128 +1,139 @@
-# Decisions
+# Decision log
 
-Depth lives in `docs/`, linked where it matters. Opened here and appended to by
-the ticket that makes each decision, rather than reconstructed at the end.
+The four questions the brief asks, answered directly. Longer versions live in
+`docs/`: [ARCHITECTURE.md](ARCHITECTURE.md) for components,
+[docs/01](docs/01-requirements-interpretation.md) for the ambiguities,
+[docs/05](docs/05-performance.md) for measurements and query plans.
 
-## Where the brief was ambiguous
+## 1. Ambiguities, and how they were resolved
 
-The brief says it has more requirements than fit in the time, on purpose. So the
-first work was deciding what each one means. Full walkthrough in
-[`docs/01`](docs/01-requirements-interpretation.md). The ones that changed the
-build most:
+- **One shared list, not one list per user.**
 
-**"Daily, weekly, monthly, or custom" is one mechanism, not four.** A unit and an
-interval. Daily is `(day, 1)`, custom is anything else. Cron and iCal RRULE were
-disproportionate: RRULE alone would have cost more than the whole dependency
-feature.
+  The brief says "multiple users accessing the same TODO list", so I took it
+  literally: no owner column, every account sees the same tasks. Concurrency is
+  therefore a lost-update problem, solved by versioning rather than identity.
 
-**Recurrence steps from the previous due date, not the completion date.** A bill
-due on the 1st that I tick on the 18th is still due on the 1st next month.
-Anchoring to completion moves it to the 18th and drifts again every month after.
-That is what you get if you do not think about it, which is why it is worth
-naming.
+- **Archived and deleted are separate things.**
 
-**Blocked tasks are refused Completed as well as In Progress.** The brief only
-guards In Progress, so read literally you can tick a task done by skipping it. A
-gate you can walk around is not a gate. It also pays for itself: if a blocked task
-can never be Completed, checking direct dependencies makes the whole upstream
-chain correct without walking the graph.
+  Archived is a status the user sets and can unset. Deleting sets `deleted_at`
+  and hides the row from normal queries, keeping it in Trash. If deleting
+  simply archived the task, "data should not be permanently lost" could not be
+  met.
 
-**A series has one live occurrence.** Completing one hands its schedule to the
-occurrence it creates. Without that handover, reopening a completed occurrence
-and finishing it again forks the series into two tasks with the same name and
-date. Both ends of the link are recorded and clickable, so "did this recur, and
-into what" is answerable from the task. Archiving pauses a series rather than
-ending it, because a shelved task should not keep generating work.
+- **Custom recurrence is a unit plus an interval.**
 
-**Archived and deleted are different things.** Archived is a status you set and
-unset. Delete is soft: hidden everywhere, recoverable from Trash, row never
-removed. Mapping delete onto Archived was cheaper, but then the status means two
-unrelated things and there is no honest answer to what `DELETE` does.
+  Daily, weekly and monthly are `(day, 1)`, `(week, 1)` and `(month, 1)`.
+  Custom is any other pair, such as every three weeks. Full iCal RRULE would
+  have cost more than the dependency feature.
 
-Also argued in `docs/01`: Not Started can go straight to Completed but Archived
-cannot, completing late produces one occurrence rather than thirty, and only
-completing a task unblocks its dependents.
+- **Recurrence counts from the original date, not from the last one.**
 
-## Architecture
+  Occurrence *n* is the anchor plus *n* intervals, clamped each time: 31
+  January, 28 February, 31 March. Counting from the previous
+  occurrence gives 28 March and never returns to the 31st. The step comes from
+  the due date, not from when you tick it.
 
-Go, React, PostgreSQL. Four layers, dependencies pointing one way. Diagrams in
-[`ARCHITECTURE.md`](ARCHITECTURE.md).
+- **Blocked tasks cannot be completed either, not just started.**
 
-**Raw SQL over an ORM.** Five tables, thirty-two statements. `RowToStructByName`
-removes the boilerplate that usually justifies an ORM, and the list query has to
-be hand-written anyway, because that is where the index lives. An ORM would have
-meant two mechanisms instead of one.
+  The brief only blocks the move to In Progress. Read literally, you could move
+  a blocked task straight to Completed and skip the rule, so the check covers
+  both transitions.
 
-**A stored sort column, because nullable keys break keyset pagination.** The
-cursor comparison `(due_date, id)` is NULL when the due date is, so undated tasks
-vanish from every page. It hides, too: nulls sort last ascending, so it looks
-correct until someone sorts descending. `due_sort` is `NOT NULL`, the due date or
-`infinity`. It could not be generated: those must be immutable and the cast is
-only stable.
+- **Deleting a blocker leaves its dependents blocked.**
 
-**Blocked is a stored count, not a subquery.** Computed at query time it cannot
-share an index with the sort key, so filtering blocked while sorting by due date
-scans thousands of rows per page. Derived state drifts, which is what the
-property test exists to catch.
+  Deleting a task is not finishing it. The dependency rows survive, so
+  restoring the blocker restores the chain. A deleted blocker is still listed
+  and marked, so nothing is blocked by something invisible.
 
-**Row versions, not locks.** Two people edit the same task and the second save
-silently erases the first. That is the failure the concurrency requirement points
-at. Updates carry the version they read and are rejected with the current state if
-it moved. Locking needs expiry, heartbeats and a force-unlock path, which is a lot
-of machinery for a list nobody holds open. It also makes completion idempotent: a
-double click reads one version, so the second write loses.
+## 2. Architectural decisions and trade-offs
 
-**Name search is substring, and the one query that is not a single seek.** A
-leading wildcard cannot use a btree index, so this needs a trigram index and
-resolves as a bitmap scan plus a sort. Prefix matching avoids that and is the
-wrong trade: nobody searches by typing the first word of a task name. The client
-holds the query until three characters, keeping the least selective searches off
-the database.
+- **Go, PostgreSQL and React.**
 
-**Keyset pagination, with an honest caveat.** At 10,000 rows offset is also fast
-and you would not feel the difference. Keyset was chosen because its cost does
-not grow with depth, not because it rescued anything at the size the brief names.
-Measured numbers at both sizes are in the README.
+  Go for the API: its standard library covers HTTP, routing and testing without
+  a framework. PostgreSQL because the dependency graph needs recursive queries,
+  and partial indexes and transactions carry the design. React because the
+  interface is one page of list state.
 
-**Postgres enums for status and priority**, because they compare by declaration
-order, so sorting returns High, Medium, Low with no `CASE`. A `CASE` in the
-`ORDER BY` would have stopped the index serving the sort.
+- **Optimistic concurrency instead of locking.**
 
-**Authentication is identity, never partitioning.** The concurrency requirement
-says users share one list; the optional features add accounts. Read carelessly
-those contradict. Accounts supply attribution, so the conflict message and the
-history name who, instead of saying "someone else".
+  Every update sends the version it read: `UPDATE ... WHERE id = ? AND
+  version = ?`. No rows updated means someone else was first, and the API
+  returns `409` with the current task. Locking would need expiry, heartbeats
+  and a force-unlock path.
 
-**The rail separates counts that add up from counts that cannot.** Every task has
-one status, so Not started, In progress, Completed and Archived sum to the total
-and a reader can check it. Overdue, blocked and recurring cut across those and
-overlap each other, so they sum to nothing. In one flat list the two look alike,
-someone adds them up, and the interface looks wrong. Two captioned groups, with
-trash outside both. A test holds the first group to its claim.
+- **The count of unfinished dependencies is stored on the row.**
 
-**The interface encodes domain state rather than decorating it.** System fonts, a
-neutral palette, nothing styled to be looked at. Three things have to be legible
-from a row: a task you cannot start, a date you have missed, and a task that
-comes back, so colour is spent on those and the primary action. The dependency
-chain is the one piece of real interface work, because a list of names does not
-show a relationship.
+  A subquery per row cannot use the sort's index, so blocked tasks sorted by
+  due date scan thousands of rows a page. It is updated in the same transaction
+  as the change, and a property test recounts it from the dependency table.
 
-## What I did not build
+- **Keyset pagination, and a sort column that is never null.**
 
-Reasoning in [`docs/02`](docs/02-scope-and-tradeoffs.md).
+  Pages use `WHERE (due_sort, id) > (?, ?)` instead of `OFFSET`, so page 400
+  costs the same as page 1. The comparison is NULL when the due date is, so
+  undated tasks vanish from every page. That looks correct ascending and breaks
+  only descending, so `due_sort` is `NOT NULL`.
 
-Per-user lists, because they contradict the shared list. A recurrence grammar,
-because a unit and interval covers everything the brief names. A background
-scheduler, because the brief's wording is completion-triggered. Password reset,
-because auth is scoped to identity. WebSockets, because updates flow one way.
-Multiple instances, because the update hub is in-process.
+- **Accounts identify people; they do not separate data.**
 
-**A generic data-access layer.** Four queries carry this project: the dynamic
-filter with keyset ordering, counter maintenance across other rows, the
-transactional recurrence spawn, and the cycle walk. None is expressible
-generically, so a `Repository[T]` would have abstracted the easy cases and added
-a second way to reach the database.
+  Sign-in checks the password with bcrypt, then stores a 256-bit random token
+  in `sessions` with a seven-day expiry, returned in an `HttpOnly`,
+  `SameSite=Lax` cookie. An opaque session, not a JWT: signing out revokes it
+  immediately, which a self-contained token cannot. Accounts add attribution.
 
-**Front-end unit tests.** The cut I am least comfortable with. Risk concentrates
-in one path and 28 end-to-end tests walk it, but component tests would fail
-faster and point straight at the cause.
+- **Server-sent events, published after the transaction commits.**
+
+  Updates travel only from server to client, so WebSockets add a protocol
+  upgrade for nothing. Messages say what changed and the client refetches
+  normally, so the stream is never a second way to write. Subscribers live in
+  memory: one instance only.
+
+- **Bulk actions run one task at a time.**
+
+  Each item carries its own version and transaction, so a blocked or stale item
+  fails alone and the rest go through. One transaction around the batch would
+  discard forty-nine good writes for one bad row.
+
+## 3. What was not built, and why
+
+- **Per-user lists.** They contradict "the same TODO list", and would leave the
+  concurrency requirement with nothing to do.
+- **Rate limiting, password reset and roles.** Accounts are scoped to identity,
+  and an in-process rate limiter would only cover one instance.
+- **Tags, subtasks, comments and attachments.** Not in the brief. Each needs its
+  own table, endpoints and interface, and none of them exercises anything the
+  brief is actually testing.
+- **Optimistic interface updates.** Every write refetches instead of patching
+  the cache, which would make the cache a second source of truth that can
+  disagree with the server. The cost is a visible round-trip on save.
+- **Front-end unit tests.** The cut I am least happy with. The risky logic is in
+  the backend and 14 end-to-end tests cover the interface, but component tests
+  would fail faster.
+
+## 4. What would be done differently with more time
+
+- **Give tasks an owner.**
+
+  Accounts record who changed what, but no task knows whose it is, so a shared
+  list cannot answer "what is on my plate". An assignee and a filter, not
+  per-user lists: everyone still sees one list.
+
+- **Tell people when something is due.**
+
+  The application tracks due dates, counts what is overdue, and already pushes
+  every change to every open tab, but it never tells anyone anything. A task due
+  tomorrow is seen only by someone who goes looking for it. Reminders would ride
+  the stream that already exists.
+
+- **Give recurrence an end.**
+
+  A repeating task repeats forever: there is no until-date and no occurrence
+  count. The brief did not ask for one, and it is the first thing anybody would
+  want.
+
+- **Decide what "due today" means.**
+
+  Dates are `timestamptz` and rendered in the browser's zone, which is
+  internally consistent. But the list is shared, so two people in different
+  zones disagree about which tasks are overdue. A shared list needs one agreed
+  zone, or a per-user one applied wherever dates are compared.

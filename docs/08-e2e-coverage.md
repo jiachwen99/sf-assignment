@@ -1,6 +1,6 @@
 # What the tests cover, and what they do not
 
-107 automated tests: 92 in Go and 15 under Playwright. The counts below are the
+108 automated tests: 92 in Go and 16 under Playwright. The counts below are the
 number of test functions, and they add up to that total. This document is
 mostly about the second half of its title, because a list of everything that
 passes tells a reviewer very little.
@@ -14,7 +14,7 @@ passes tells a reviewer very little.
 | `internal/service` | 7 | The same, one layer up: the bulk paths, per item. |
 | `internal/api` | 3 | The specification against the routes, and the reference page. |
 | `internal/events` | 5 | The in-process hub, with no database at all. |
-| `e2e/demo.spec.ts` | 13 | A browser against the whole stack, on seeded data. |
+| `e2e/demo.spec.ts` | 14 | A browser against the whole stack, on seeded data. |
 | `e2e/contrast.spec.ts` | 2 | Arithmetic over `styles.css`. No browser. |
 
 The weight sits in `store` because that is where the decisions are. The blocking
@@ -64,6 +64,12 @@ seeded data rather than a clean table: create and edit and delete, trash and
 restore, recurrence, blocking, a refused cycle, a version conflict between two
 windows, filtering and sorting and paging at scale, real-time between two
 browsers, subscription release, two accounts and attribution, and bulk.
+
+One of those is not part of the demo. A save awaits the write before closing the
+panel, and anything done in that gap races it; opening another task meant the
+close landed on the wrong one. The suite found it by failing about one run in
+three, and the test now holds the response open until the second task is on
+screen, so it fails every time rather than sometimes.
 
 **`contrast.spec.ts`** — reads the OKLCH tokens out of `styles.css`, converts
 them the way a browser does, and holds every text pair to WCAG AA. See

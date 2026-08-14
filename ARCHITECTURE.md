@@ -248,13 +248,13 @@ It does not drive Trash. Deletion state stays on the row as `deleted_at`, becaus
 
 ## Front end
 
-React with TypeScript, Vite, TanStack Query, and Mantine for components.
+React with TypeScript, Vite, TanStack Query for server state, and Tailwind v4 for styling. There is no component library.
 
 All list state lives in the URL: filters, sort, cursor, selection. Refreshing reproduces the view, and a link can be pasted mid-demo to land someone on exactly what I am looking at.
 
-Mantine is there because the brief says the interface does not need to be polished. Hand-building a modal with a correct focus trap, a searchable multi-select, a toast and a date picker is most of a day, and that day is better spent on the three non-functional requirements. A confirm dialog that mishandles focus would also be a worse look than the dependency.
+The ten primitives in `components/ui/` are hand-built: `Button`, `IconButton`, `Input`, `Select`, `TextArea`, `Field`, `Badge`, `Notice`, `Section` and `ConfirmDialog`. The brief says the interface does not need to be polished, and a library would have been the faster route to a polished one — but it also brings its own design language and a large dependency for a handful of controls, on a screen that needs a table, a form and one dialog. What the interface actually needed was consistency across seven screens, which is a shared vocabulary rather than a package. The colour tokens are held to WCAG AA by a test that reads them out of the stylesheet.
 
-One component is not a plain Mantine component. The dependency picker cannot load every other task into a select, because at 200,000 rows that is filtering in the browser, which is precisely what the third requirement forbids. It is a debounced typeahead that queries the API by substring and only ever holds the current matches plus what is already selected.
+The dependency picker is the one control with real behaviour behind it. It cannot load every other task into a select, because at 200,000 rows that is filtering in the browser, which is precisely what the third requirement forbids. It is a debounced typeahead that queries the API by substring and only ever holds the current matches plus what is already selected.
 
 ## Known limits
 

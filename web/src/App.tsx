@@ -56,6 +56,21 @@ export function App() {
       ? selection
       : (todos?.find((t) => t.id === selection.id) ?? selection)
 
+  /*
+   * Closes the panel only if it is still showing the task that asked to close.
+   *
+   * Saving awaits the write before closing, and in that gap you can open
+   * another task. Closing unconditionally then shuts the panel you just opened,
+   * a moment after you opened it, which reads as the interface losing your
+   * click. Found by the end-to-end suite failing roughly one run in three.
+   */
+  const closeIfStillShowing = (subject: Selection) => () =>
+    setSelection((current) => {
+      if (current === null || subject === null) return current
+      if (current === 'new' || subject === 'new') return current === subject ? null : current
+      return current.id === subject.id ? null : current
+    })
+
   const showTrash = (on: boolean) => {
     setInTrash(on)
     // The panel edits a live task, and nothing in the trash is editable.
@@ -188,7 +203,7 @@ export function App() {
         <div className="w-[340px] shrink-0">
           <TaskDetail
             todo={open}
-            onClose={() => setSelection(null)}
+            onClose={closeIfStillShowing(open)}
             // The chain and the history are also how you navigate, and both can
             // point outside the current view: a completed predecessor is not in
             // the recurring list. Fetching it is the difference between a link

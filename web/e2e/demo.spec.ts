@@ -401,3 +401,52 @@ test('a batch that fully succeeds clears the selection', async ({ page, request 
   await expect(page.getByTestId('bulk-archive')).toBeHidden()
   await expect(page.getByTestId('todo-row').first()).toContainText('Archived')
 })
+
+/*
+ * Saving awaits the write and then closes the panel. Anything you do in that
+ * gap is racing it, and opening another task is the obvious thing to do: the
+ * close then lands on the task you just opened rather than the one you saved.
+ *
+ * The suite found this by failing about one run in three, always on a later
+ * assertion than the one that opened the panel. Reproduced deterministically
+ * here by holding the response open until the second task is on screen, so
+ * this fails every time rather than sometimes.
+ */
+test('a save that lands late does not close the task opened after it', async ({
+  page,
+  request,
+}) => {
+  const label = unique('late save')
+  const first = await createTask(request, { name: `${label} first`, priority: 'low' })
+  await createTask(request, { name: `${label} second`, priority: 'low' })
+
+  // Held open until released, so the gap is guaranteed rather than hoped for.
+  let release: () => void = () => {}
+  const held = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  await page.route(`**/api/todos/${first.id}`, async (route) => {
+    if (route.request().method() !== 'PUT') return route.fallback()
+    await held
+    await route.continue()
+  })
+
+  await openList(page, `name=${encodeURIComponent(label)}&sort=name&dir=asc`)
+  await page.getByTestId('todo-row').filter({ hasText: 'first' }).click()
+  await expect(page.getByTestId('todo-name')).toHaveValue(`${label} first`)
+
+  await page.getByTestId('todo-priority').selectOption('high')
+  await page.getByTestId('todo-save').click()
+
+  // The save is still in flight. Open the other task.
+  await page.getByTestId('todo-row').filter({ hasText: 'second' }).click()
+  await expect(page.getByTestId('todo-name')).toHaveValue(`${label} second`)
+
+  release()
+
+  // The panel belongs to the second task now, so the first task's save must not
+  // close it. Asserted after the write has settled rather than immediately.
+  await expect(page.getByTestId('todo-row').filter({ hasText: 'first' })).toContainText('High')
+  await expect(page.getByLabel('Task detail')).toBeVisible()
+  await expect(page.getByTestId('todo-name')).toHaveValue(`${label} second`)
+})

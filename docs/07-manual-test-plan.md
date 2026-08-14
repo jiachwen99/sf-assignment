@@ -24,11 +24,13 @@ For anything about scale, load the seed first. It takes about a minute:
 
 ```
 cd api
-DATABASE_URL=postgres://todo:todo@localhost:5432/todo?sslmode=disable go run ./cmd/seed -n 20000
+go run ./cmd/seed -n 20000
 ```
 
-The seed is deterministic, so the counts below will match. Without it the
-application is empty and still works; only checks 14 and 15 need it.
+The seed is deterministic, so the counts below will match. **It truncates first**,
+so load it before working through the checks rather than after, or the tasks you
+created will be gone. Without it the application is empty and still works; only
+checks 14 and 15 need it.
 
 ---
 
