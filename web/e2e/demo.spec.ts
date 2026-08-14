@@ -362,3 +362,42 @@ async function register(page: Page, email: string, name: string) {
   await page.getByTestId('auth-password').fill('a long enough password')
   await page.getByTestId('register-submit').click()
 }
+
+test('a batch applies what it can and names what it could not', async ({ page, request }) => {
+  const label = unique('bulk')
+  const blocker = await createTask(request, { name: `${label} collect the data` })
+  const waiting = await createTask(request, { name: `${label} write the report` })
+  const plain = await createTask(request, { name: `${label} unrelated` })
+  await addDependency(request, waiting.id, blocker.id)
+
+  // Sorted so the blocked one is selected before its blocker, which is the
+  // order that produces a refusal rather than releasing it on the way past.
+  await openList(page, `name=${encodeURIComponent(label)}&sort=name&dir=desc`)
+  await page.getByTestId('select-page').check()
+  await expect(page.getByTestId('bulk-complete')).toBeVisible()
+
+  await page.getByTestId('bulk-complete').click()
+
+  // One refused, and it says which and why.
+  const refused = page.getByTestId('bulk-refused')
+  await expect(refused).toContainText('1 of 3 could not be done')
+  await expect(refused).toContainText(`${label} write the report`)
+  await expect(refused).toContainText('waiting on')
+
+  // The other two went through, which is the whole point of per-item results.
+  expect((await readTask(request, blocker.id)).status).toBe('completed')
+  expect((await readTask(request, plain.id)).status).toBe('completed')
+})
+
+test('a batch that fully succeeds clears the selection', async ({ page, request }) => {
+  const label = unique('bulk ok')
+  await createTask(request, { name: `${label} one` })
+  await createTask(request, { name: `${label} two` })
+
+  await openList(page, `name=${encodeURIComponent(label)}`)
+  await page.getByTestId('select-page').check()
+  await page.getByTestId('bulk-archive').click()
+
+  await expect(page.getByTestId('bulk-archive')).toBeHidden()
+  await expect(page.getByTestId('todo-row').first()).toContainText('Archived')
+})

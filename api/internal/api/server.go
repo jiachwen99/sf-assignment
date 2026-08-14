@@ -37,6 +37,8 @@ func NewServer(svc *service.Service, hub *events.Hub, log *slog.Logger) *Server 
 	s.handle("PUT /api/todos/{id}", s.updateTodo)
 	s.handle("DELETE /api/todos/{id}", s.deleteTodo)
 	s.handle("POST /api/todos/{id}/complete", s.completeTodo)
+	s.handle("POST /api/todos/bulk/complete", s.bulkComplete)
+	s.handle("POST /api/todos/bulk/archive", s.bulkArchive)
 
 	s.handle("POST /api/auth/register", s.register)
 	s.handle("POST /api/auth/login", s.login)

@@ -44,3 +44,10 @@ export type ViewId =
   | 'overdue'
   | 'blocked'
   | 'recurring'
+
+export type BulkResult = {
+  id: number
+  ok: boolean
+  error?: string
+  blockers?: { id: number; name: string }[]
+}

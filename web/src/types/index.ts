@@ -9,6 +9,14 @@ export type {
   TaskEvent,
 } from './todo'
 
-export type { SortField, SortDir, ListQuery, TodoPage, Counts, ViewId } from './list'
+export type {
+  SortField,
+  SortDir,
+  ListQuery,
+  TodoPage,
+  Counts,
+  ViewId,
+  BulkResult,
+} from './list'
 
 export type { User } from './user'

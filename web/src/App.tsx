@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { request } from './api/client'
 import { useCounts, useRestoreTodo, useTodos, useTrash } from './api/todos'
 import { AccountMenu } from './components/AccountMenu'
+import { BulkBar } from './components/BulkBar'
 import { EmptyState } from './components/EmptyState'
 import { FilterRow } from './components/FilterRow'
 import { TaskDetail } from './components/TaskDetail'
@@ -24,6 +25,7 @@ export function App() {
   const [query, setQuery] = useState<ListQuery>(() => queryFromURL(window.location.search))
   const [inTrash, setInTrash] = useState(false)
   const [selection, setSelection] = useState<Selection>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
 
   const { data, isPending, error, hasNextPage, isFetchingNextPage, fetchNextPage } = useTodos(query)
   const { data: counts } = useCounts()
@@ -66,6 +68,17 @@ export function App() {
   }
 
   const sortBy = (sort: SortField, dir: SortDir) => setQuery({ ...query, sort, dir })
+
+  const select = (ids: number[], checked: boolean) =>
+    setSelectedIds((current) => {
+      const next = new Set(current)
+      ids.forEach((id) => (checked ? next.add(id) : next.delete(id)))
+      return next
+    })
+
+  // Held by id and resolved against the list, so a selected row that has since
+  // moved out of view is not acted on with a stale version.
+  const selected = todos?.filter((t) => selectedIds.has(t.id)) ?? []
 
   return (
     <div className="flex h-screen bg-canvas text-ink">
@@ -110,6 +123,10 @@ export function App() {
 
         {!inTrash && <FilterRow query={query} onChange={setQuery} />}
 
+        {!inTrash && selected.length > 0 && (
+          <BulkBar selected={selected} onClear={() => setSelectedIds(new Set())} />
+        )}
+
         <div className="flex-1 overflow-y-auto">
           {inTrash ? (
             <TrashList todos={trash ?? []} onRestore={(id) => restore.mutate(id)} />
@@ -131,6 +148,8 @@ export function App() {
                       activeId={open && open !== 'new' ? open.id : null}
                       sort={query.sort ?? DEFAULT_SORT}
                       dir={query.dir ?? DEFAULT_DIR}
+                      selected={selectedIds}
+                      onSelect={select}
                       onSort={sortBy}
                       onOpen={setSelection}
                     />

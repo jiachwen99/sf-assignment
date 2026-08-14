@@ -2,6 +2,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import { request } from './client'
 import { COUNTS_STALE_TIME, MIN_SEARCH, queryKeys } from '../constants'
 import type {
+  BulkResult,
   Counts,
   DependencyView,
   ListQuery,
@@ -39,7 +40,7 @@ export function useTodos(query: ListQuery) {
   })
 }
 
-function useTodoMutation<T>(fn: (v: T) => Promise<unknown>) {
+function useTodoMutation<T, R>(fn: (v: T) => Promise<R>) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: fn,
@@ -140,6 +141,18 @@ export function useTodoSearch(term: string, excludeId: number) {
       ).then((r) => r.items),
     enabled: trimmed.length >= MIN_SEARCH,
   })
+}
+
+// Every item is attempted and every outcome comes back, so this resolves even
+// when some of the batch was refused. The caller reads the results rather than
+// a thrown error.
+export function useBulk(action: 'complete' | 'archive') {
+  return useTodoMutation((items: { id: number; version: number }[]) =>
+    request<{ results: BulkResult[] }>(`/todos/bulk/${action}`, {
+      method: 'POST',
+      body: JSON.stringify({ items }),
+    }).then((r) => r.results),
+  )
 }
 
 // A rejected write means the list is out of date too, but refetching while the

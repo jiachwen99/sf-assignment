@@ -42,6 +42,8 @@ export function TaskList({
   activeId,
   sort,
   dir,
+  selected,
+  onSelect,
   onSort,
   onOpen,
 }: {
@@ -49,9 +51,12 @@ export function TaskList({
   activeId: number | null
   sort: SortField
   dir: SortDir
+  selected: Set<number>
+  onSelect: (ids: number[], checked: boolean) => void
   onSort: (sort: SortField, dir: SortDir) => void
   onOpen: (todo: Todo) => void
 }) {
+  const allOnPage = todos.length > 0 && todos.every((t) => selected.has(t.id))
   // Clicking the active column reverses it; clicking another switches to it.
   const sortBy = (field: SortField) =>
     onSort(field, field === sort ? (dir === 'asc' ? 'desc' : 'asc') : firstDirection[field])
@@ -81,7 +86,19 @@ export function TaskList({
     <table className="w-full border-collapse text-left">
       <thead>
         <tr className="border-b border-rule-firm">
-          {header('name', 'Task', 'pl-4')}
+          <th className="w-8 py-2 pl-4">
+            {/* Selects what is on screen, which is what "all" can honestly mean
+                when the list is paged and the next page has not been fetched. */}
+            <input
+              type="checkbox"
+              checked={allOnPage}
+              onChange={(e) => onSelect(todos.map((t) => t.id), e.currentTarget.checked)}
+              aria-label="Select every task on this page"
+              data-testid="select-page"
+              className="size-3.5 cursor-pointer accent-[var(--color-action)]"
+            />
+          </th>
+          {header('name', 'Task')}
           {header('due', 'Due')}
           {header('status', 'Status')}
           {header('priority', 'Priority')}
@@ -104,7 +121,18 @@ export function TaskList({
                 todo.id === activeId ? 'bg-action-wash' : 'hover:bg-raised'
               }`}
             >
-              <td className="py-1.5 pl-4">
+              {/* Stops the row click, because selecting is not opening. */}
+              <td className="py-1.5 pl-4" onClick={(e) => e.stopPropagation()}>
+                <input
+                  type="checkbox"
+                  checked={selected.has(todo.id)}
+                  onChange={(e) => onSelect([todo.id], e.currentTarget.checked)}
+                  aria-label={`Select ${todo.name}`}
+                  data-testid="select-row"
+                  className="size-3.5 cursor-pointer accent-[var(--color-action)]"
+                />
+              </td>
+              <td className="py-1.5">
                 <div className="flex min-w-0 items-center gap-2">
                   <span
                     className={`truncate text-[13px] ${finished ? 'text-ink-faint line-through' : 'text-ink'}`}

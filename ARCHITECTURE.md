@@ -4,7 +4,7 @@ Go API, React front end, PostgreSQL. Four layers on the server, and one rule tha
 
 GitHub renders the diagrams below in place. SF-017 also exports them as images, for viewers that do not.
 
-The diagrams describe what is built. Bulk operations are optional and not built yet, so nothing here shows them.
+The diagrams describe what is built.
 
 ```mermaid
 flowchart TB
