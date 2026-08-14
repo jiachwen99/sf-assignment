@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { ApiError } from '../api/client'
 import {
@@ -62,10 +62,12 @@ const toInput = (t: Todo): TodoInput => ({
 export function TaskDetail({
   todo,
   onClose,
+  onCreated,
   onOpenTask,
 }: {
   todo: Todo | 'new'
   onClose: () => void
+  onCreated: (todo: Todo) => void
   onOpenTask: (id: number) => void
 }) {
   const isNew = todo === 'new'
@@ -97,7 +99,11 @@ export function TaskDetail({
   // every write, and resetting on a new object identity would throw away
   // whatever was half typed at the time.
   const openID = isNew ? 'new' : todo.id
+  // A write resolves after the panel may have moved on, so its result is only
+  // applied if the panel is still showing what it was written for.
+  const showing = useRef<number | 'new'>(openID)
   useEffect(() => {
+    showing.current = openID
     setBase(existing)
     setForm(existing ? toInput(existing) : blank)
     setErrors({})
@@ -140,9 +146,17 @@ export function TaskDetail({
   const save = async () => {
     setErrors({})
     try {
-      if (base) await update.mutateAsync({ id: base.id, version: base.version, input: form })
-      else await create.mutateAsync(form)
-      onClose()
+      if (base) {
+        const editing = openID
+        const saved = await update.mutateAsync({ id: base.id, version: base.version, input: form })
+        if (showing.current !== editing) return
+        setBase(saved)
+        setForm(toInput(saved))
+      } else {
+        // Hand the new task to the list so the panel is editing it rather than
+        // still offering to create another one.
+        onCreated(await create.mutateAsync(form))
+      }
     } catch (err) {
       handle(err)
     }
@@ -161,8 +175,11 @@ export function TaskDetail({
   const finish = async () => {
     if (!base) return
     try {
-      await complete.mutateAsync({ id: base.id, version: base.version })
-      onClose()
+      const editing = openID
+      const { completed } = await complete.mutateAsync({ id: base.id, version: base.version })
+      if (showing.current !== editing) return
+      setBase(completed)
+      setForm(toInput(completed))
     } catch (err) {
       handle(err)
     }
@@ -175,14 +192,11 @@ export function TaskDetail({
       aria-label={isNew ? 'New task' : 'Task detail'}
       className="flex h-full w-full flex-col overflow-y-auto border-l border-rule bg-canvas"
     >
-      <header className="sticky top-0 z-10 flex items-start gap-2 border-b border-rule bg-canvas px-4 py-3">
-        <TaskNameField form={form} onChange={(name) => patch({ name })} />
+      <header className="sticky top-0 z-10 flex justify-end border-b border-rule bg-canvas px-4 py-2">
         <IconButton onClick={onClose} aria-label="Close panel" className="-mr-1">
           <CloseIcon />
         </IconButton>
       </header>
-
-      {errors.name && <p className="px-4 pt-2 text-[12px] text-late">{errors.name}</p>}
 
       {rejected && (
         <RejectionNotice
@@ -199,15 +213,24 @@ export function TaskDetail({
         />
       )}
 
-      <Section title="Details">
+      <Section title="">
         <div className="space-y-3">
-          <TextArea
-            value={form.description}
-            onChange={(e) => patch({ description: e.currentTarget.value })}
-            placeholder="Add a description"
-            rows={3}
-            aria-label="Description"
+          <TaskNameField
+            form={form}
+            onChange={(name) => patch({ name })}
+            error={errors.name}
+            autoFocus={isNew}
           />
+
+          <Field label="Description">
+            <TextArea
+              value={form.description}
+              onChange={(e) => patch({ description: e.currentTarget.value })}
+              placeholder="Add a description"
+              rows={3}
+              aria-label="Description"
+            />
+          </Field>
 
           <div className="grid grid-cols-2 gap-3">
             <Field label="Status">

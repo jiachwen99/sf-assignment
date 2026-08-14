@@ -2,7 +2,7 @@
 
 Go API, React front end, PostgreSQL. Four layers on the server, and one rule that keeps them honest: dependencies point one way only.
 
-GitHub renders the diagrams below in place. SF-017 also exports them as images, for viewers that do not.
+GitHub renders the diagrams below in place. The top-level one is also exported to `docs/images/architecture.png`, for viewers that do not.
 
 The diagrams describe what is built.
 
@@ -40,7 +40,7 @@ flowchart TB
 
 `service/` holds the rules that need to read before they write. Validation, so they hold for any caller rather than for one handler. The recurrence anchor, which is set once and then carried, and needs to know whether the task was already recurring. And the refusal to reach Completed through an ordinary update, which needs the current status to compare against.
 
-Transactions stay in `store/`. Completing a recurring task is four writes that have to succeed or fail together: mark it done, open the next occurrence, hand the schedule over, adjust every dependent's counter, and record the events. Lifting that into `service/` would mean passing a `pgx.Tx` upward, which puts the database back in the layer above and gains nothing: a transaction is a database concern.
+Transactions stay in `store/`. Completing a recurring task is several writes that have to succeed or fail together: mark it done, open the next occurrence, hand the schedule over, adjust every dependent's counter, and record the events. Lifting that into `service/` would mean passing a `pgx.Tx` upward, which puts the database back in the layer above and gains nothing: a transaction is a database concern.
 
 `api/` is thin. It decodes, validates, calls one service method, and maps the result to a status code. Status codes are decided in exactly one file, so there is one place to look when an endpoint returns the wrong one.
 
@@ -63,7 +63,7 @@ erDiagram
     timestamptz due_sort "NOT NULL, infinity when due_date is null"
     todo_status status "enum, ordered"
     todo_priority priority "enum, ordered"
-    text recur_unit "nullable: day, week, month"
+    recur_unit recur_unit "enum, nullable: day, week, month"
     int recur_interval "nullable, at least 1"
     int unmet_deps_count "maintained, indexed"
     int version "incremented on user edits"
@@ -114,7 +114,7 @@ The brief asks to filter by blocked state at 10,000 items or more. Computing blo
 
 So each task stores how many of its dependencies are unfinished. Blocked becomes `unmet_deps_count > 0`, which is an ordinary indexed predicate that composes with sorting and with the keyset seek.
 
-It is maintained in exactly four places: a dependency is added, a dependency is removed, a task enters Completed, a task leaves Completed. Archive, delete and restore do not touch it, because only Completed unblocks. That absence is deliberate and it is the one thing in this codebase most likely to look like a missing update, so it carries a comment.
+It is maintained in exactly four places: a dependency is added, a dependency is removed, a task enters Completed, a task leaves Completed. Archive, delete and restore do not touch it, because only Completed unblocks. That absence is deliberate, and it is the thing here most likely to look like a missing update, so the code says so where someone would go looking.
 
 The risk of storing derived state is that it drifts. There is a property test that applies a random sequence of dependency and status changes, then compares every counter against a query that recomputes it from scratch.
 
@@ -187,7 +187,7 @@ matches no rows and cannot spawn a duplicate.
 
 Every index here exists for a query, and each one is added in the same commit as the query that needs it.
 
-Every one below is partial on `deleted_at IS NULL`, so the ordinary list never walks trash rows, and every one ends in `id` so the keyset seek and the ordering come out of the same index and no sort node is needed.
+The btree indexes on `todos` are partial on `deleted_at IS NULL`, so the ordinary list never walks trash rows, and each ends in `id` so the keyset seek and the ordering come out of the same index and no sort node is needed. The trigram index is not partial, because a bitmap scan filters afterwards anyway.
 
 | Index | Serves |
 |---|---|
@@ -238,7 +238,7 @@ sequenceDiagram
   HUB-->>API: fan out to subscribers
 ```
 
-The event is published after the transaction commits, never inside it. Publishing from inside means a client can receive notice of a change and refetch before that change is visible, and then it sees stale data and stops trusting the stream. This is the other place in the codebase that carries a comment.
+The event is published after the transaction commits, never inside it. Publishing from inside means a client can receive notice of a change and refetch before that change is visible, and then it sees stale data and stops trusting the stream. The code says so at the publish site, for the same reason.
 
 ## Events
 
@@ -252,10 +252,7 @@ React with TypeScript, Vite, TanStack Query for server state, and Tailwind v4 fo
 
 All list state lives in the URL: filters, sort, cursor, selection. Refreshing reproduces the view, and a link can be pasted mid-demo to land someone on exactly what I am looking at.
 
-The ten primitives in `components/ui/` are hand-built: `Button`, `IconButton`, `Input`, `Select`, `TextArea`, `Field`, `Badge`, `Notice`, `Section` and `ConfirmDialog`. The brief says the interface does not need to be polished, and a library would have been the faster route to a polished one — but it also brings its own design language and a large dependency for a handful of controls, on a screen that needs a table, a form and one dialog. What the interface actually needed was consistency across seven screens, which is a shared vocabulary rather than a package. The colour tokens are held to WCAG AA by a test that reads them out of the stylesheet.
+The ten primitives in `components/ui/` are hand-built: `Button`, `IconButton`, `Input`, `Select`, `TextArea`, `Field`, `Badge`, `Notice`, `Section` and `ConfirmDialog`. The brief says the interface does not need to be polished, and a library would have been the faster route to a polished one — but it also brings its own design language and a large dependency for a handful of controls, on a screen that needs a table, a form and one dialog. What the interface actually needed was consistency across every surface that takes input, which is a shared vocabulary rather than a package. The colour tokens are held to WCAG AA by a test that reads them out of the stylesheet.
 
 The dependency picker is the one control with real behaviour behind it. It cannot load every other task into a select, because at 200,000 rows that is filtering in the browser, which is precisely what the third requirement forbids. It is a debounced typeahead that queries the API by substring and only ever holds the current matches plus what is already selected.
 
-## Known limits
-
-Live updates are broadcast from memory in one process. Two instances behind a load balancer would not see each other's changes. The fix is Postgres LISTEN/NOTIFY, and I did not build it because the brief asks for something that runs locally.

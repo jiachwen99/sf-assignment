@@ -1,37 +1,34 @@
-import { recurrenceLabel } from '../../lib/recurrence'
 import type { TodoInput } from '../../types'
-import { Badge } from '../ui/Badge'
-import { RepeatIcon } from '../ui/icons'
+import { Field, TextArea } from '../ui/Control'
 
 // A textarea rather than an input, because an input cannot wrap and a long name
 // is then cut off mid-word.
 export function TaskNameField({
   form,
   onChange,
+  error,
+  autoFocus = false,
 }: {
   form: TodoInput
   onChange: (name: string) => void
+  error?: string
+  autoFocus?: boolean
 }) {
-  const repeats = recurrenceLabel(form)
-
   return (
-    <div className="min-w-0 flex-1">
-      <textarea
-        rows={1}
-        value={form.name}
-        onChange={(e) => onChange(e.currentTarget.value)}
-        onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()}
-        placeholder="Task name"
-        aria-label="Task name"
-        data-testid="todo-name"
-        className="block w-full resize-none border-0 bg-transparent p-0 text-[15px] leading-snug font-medium text-ink outline-none placeholder:text-ink-faint"
-      />
-      {repeats && (
-        <Badge data-testid="detail-recurs" className="mt-1">
-          <RepeatIcon />
-          {repeats}
-        </Badge>
-      )}
+    <div>
+      <Field label="Name">
+        <TextArea
+          rows={2}
+          autoFocus={autoFocus}
+          value={form.name}
+          onChange={(e) => onChange(e.currentTarget.value)}
+          onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()}
+          placeholder="What needs doing?"
+          aria-label="Task name"
+          data-testid="todo-name"
+        />
+      </Field>
+      {error && <p className="mt-1 text-[12px] text-late">{error}</p>}
     </div>
   )
 }

@@ -402,16 +402,9 @@ test('a batch that fully succeeds clears the selection', async ({ page, request 
   await expect(page.getByTestId('todo-row').first()).toContainText('Archived')
 })
 
-/*
- * Saving awaits the write and then closes the panel. Anything you do in that
- * gap is racing it, and opening another task is the obvious thing to do: the
- * close then lands on the task you just opened rather than the one you saved.
- *
- * The suite found this by failing about one run in three, always on a later
- * assertion than the one that opened the panel. Reproduced deterministically
- * here by holding the response open until the second task is on screen, so
- * this fails every time rather than sometimes.
- */
+// The save closes the panel after the write returns. Holding the response open
+// makes that land after the next task is on screen, which is when it used to
+// close the wrong one.
 test('a save that lands late does not close the task opened after it', async ({
   page,
   request,

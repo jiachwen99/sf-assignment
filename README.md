@@ -100,14 +100,20 @@ log behind every task.
 
 ## Measured latency
 
-At **200,000 tasks**, over HTTP, 50 requests per query, page size 50:
+Median of 50 requests per query, over HTTP, page size 50, at both sizes:
 
-| Query | p50 | p95 | max |
-|---|---|---|---|
-| Default list | 1.0ms | 1.6ms | 2.2ms |
-| Blocked, sorted by due date | 1.6ms | 3.0ms | 3.0ms |
-| Name search | 4.4ms | 6.0ms | 7.5ms |
-| Counts | 31.1ms | 42.7ms | 43.8ms |
+| Query | 20,000 tasks | 200,000 tasks |
+|---|---|---|
+| Default list | 1.0ms | 1.0ms |
+| Sorted by due date | 0.9ms | 1.0ms |
+| Blocked, sorted by due date | 1.2ms | 1.6ms |
+| Name search | 2.5ms | 4.4ms |
+| Counts | 5.0ms | 31.1ms |
+
+The tenfold increase is invisible to every paged query, because a keyset page
+reads fifty index entries whatever sits behind them. It is obvious in the last
+two, which are the ones that scan: a count has to see every matching row, and a
+leading-wildcard search cannot seek. Counts is the ceiling.
 
 Reproduce with:
 
@@ -117,15 +123,11 @@ go run ./cmd/seed -n 200000
 go run ./cmd/bench
 ```
 
-Paged queries cost the same at 20,000 rows and 200,000, because a keyset page
-reads fifty index entries whatever sits behind them. The counts query is the
-exception and the ceiling: it scans, so it grows with the table, 5ms at 20,000
-and 31ms at 200,000.
-
-These are single-client numbers on one machine with a warm cache. That is the
+These are single-client numbers on one machine with a warm cache, which is the
 right shape for asking whether the query plans hold at size and says nothing
-about behaviour under concurrent load. Conditions, the full table, and where each
-measurement stops being true are in [`docs/05`](docs/05-performance.md).
+about behaviour under concurrent load. Percentiles, the full set of queries, the
+conditions, and where each measurement stops being true are in
+[`docs/05`](docs/05-performance.md).
 
 ## Architecture
 

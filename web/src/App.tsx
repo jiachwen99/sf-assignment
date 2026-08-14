@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { request } from './api/client'
 import { useCounts, useRestoreTodo, useTodos, useTrash } from './api/todos'
@@ -25,6 +25,11 @@ export function App() {
   const [query, setQuery] = useState<ListQuery>(() => queryFromURL(window.location.search))
   const [inTrash, setInTrash] = useState(false)
   const [selection, setSelection] = useState<Selection>(null)
+  const opened = useRef(0)
+  const openPanel = (next: Selection) => {
+    opened.current += 1
+    setSelection(next)
+  }
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
 
   const { data, isPending, error, hasNextPage, isFetchingNextPage, fetchNextPage } = useTodos(query)
@@ -40,36 +45,18 @@ export function App() {
   // Anybody else's change refreshes what is on screen, without a reload.
   useEvents()
 
-  // Written on change rather than read on render, so the URL follows the list
-  // instead of the two arguing about which one is authoritative.
   useEffect(() => {
     window.history.replaceState(null, '', urlFromQuery(query))
   }, [query])
 
-  // The list is the source of truth where it has an answer, so a selected task
-  // follows its own edits rather than holding the copy that was clicked. It
-  // falls back to the selection itself for a task the current view does not
-  // contain, which is how a link out of the chain or the history can open
-  // something the filter excludes.
   const open =
     selection === 'new' || selection === null
       ? selection
       : (todos?.find((t) => t.id === selection.id) ?? selection)
 
-  /*
-   * Closes the panel only if it is still showing the task that asked to close.
-   *
-   * Saving awaits the write before closing, and in that gap you can open
-   * another task. Closing unconditionally then shuts the panel you just opened,
-   * a moment after you opened it, which reads as the interface losing your
-   * click. Found by the end-to-end suite failing roughly one run in three.
-   */
-  const closeIfStillShowing = (subject: Selection) => () =>
-    setSelection((current) => {
-      if (current === null || subject === null) return current
-      if (current === 'new' || subject === 'new') return current === subject ? null : current
-      return current.id === subject.id ? null : current
-    })
+  const closeWhenUntouched = (generation: number) => () => {
+    if (opened.current === generation) setSelection(null)
+  }
 
   const showTrash = (on: boolean) => {
     setInTrash(on)
@@ -126,7 +113,7 @@ export function App() {
           <AccountMenu />
 
           {!inTrash && (
-            <Button variant="primary" onClick={() => setSelection('new')} data-testid="new-todo">
+            <Button variant="primary" onClick={() => openPanel('new')} data-testid="new-todo">
               New task
             </Button>
           )}
@@ -167,7 +154,7 @@ export function App() {
               )}
               {todos &&
                 (todos.length === 0 ? (
-                  <EmptyState onCreate={() => setSelection('new')} />
+                  <EmptyState onCreate={() => openPanel('new')} />
                 ) : (
                   <>
                     <TaskList
@@ -178,7 +165,7 @@ export function App() {
                       selected={selectedIds}
                       onSelect={select}
                       onSort={sortBy}
-                      onOpen={setSelection}
+                      onOpen={openPanel}
                     />
                     <div ref={sentinel} aria-hidden />
                     {hasNextPage && (
@@ -203,14 +190,15 @@ export function App() {
         <div className="w-[340px] shrink-0">
           <TaskDetail
             todo={open}
-            onClose={closeIfStillShowing(open)}
+            onClose={closeWhenUntouched(opened.current)}
+            onCreated={openPanel}
             // The chain and the history are also how you navigate, and both can
             // point outside the current view: a completed predecessor is not in
             // the recurring list. Fetching it is the difference between a link
             // and a link that does nothing.
             onOpenTask={async (id) => {
               const known = todos?.find((t) => t.id === id)
-              setSelection(known ?? (await request<Todo>(`/todos/${id}`)))
+              openPanel(known ?? (await request<Todo>(`/todos/${id}`)))
             }}
           />
         </div>
