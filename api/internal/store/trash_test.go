@@ -118,3 +118,26 @@ func TestSearchDoesNotOfferDeletedTasks(t *testing.T) {
 	require.Len(t, found, 1)
 	require.Equal(t, keep.ID, found[0].ID)
 }
+
+// The trash is the one list nothing ever prunes, so it is the one list that
+// would grow without limit if the query did not say otherwise. Found by the
+// SF-016 audit: at two hundred thousand rows this returned all of them.
+func TestTheTrashIsBounded(t *testing.T) {
+	s := NewTestStore(t)
+	ctx := context.Background()
+
+	for i := 0; i < trashLimit+5; i++ {
+		todo := newTodo(t, s, "throw away")
+		require.NoError(t, s.DeleteTodo(ctx, todo.ID, todo.Version))
+	}
+
+	trash, err := s.Trash(ctx)
+	require.NoError(t, err)
+	require.Len(t, trash, trashLimit)
+
+	// Capped at the recent end, which is the end you came here for.
+	counts, err := s.Counts(ctx)
+	require.NoError(t, err)
+	require.Equal(t, trashLimit+5, counts.Trash,
+		"and the count still tells the truth about how much is in there")
+}

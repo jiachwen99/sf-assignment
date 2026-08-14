@@ -116,6 +116,55 @@ func TestABlockedTaskCannotStartOrFinish(t *testing.T) {
 	require.ErrorAs(t, err, &blocked, "and the further destination is guarded too")
 }
 
+/*
+ * The brief says a task cannot start until *all* of its dependencies are
+ * completed, and every other test here uses a single dependency, where "all"
+ * and "any" are the same sentence.
+ *
+ * Found by the SF-016 audit: an implementation that cleared the counter on the
+ * first completion rather than decrementing it would have passed the whole
+ * suite. This is the case that tells the two apart.
+ */
+func TestATaskWithTwoDependenciesNeedsBothCompleted(t *testing.T) {
+	s := NewTestStore(t)
+	ctx := context.Background()
+
+	first := newTodo(t, s, "collect the data")
+	second := newTodo(t, s, "book the room")
+	report := newTodo(t, s, "write the report")
+	require.NoError(t, s.AddDependency(ctx, report.ID, first.ID))
+	require.NoError(t, s.AddDependency(ctx, report.ID, second.ID))
+
+	_, err := s.Complete(ctx, first.ID, first.Version, time.Now())
+	require.NoError(t, err)
+
+	// One of two is done, so it is still blocked, and by the one still open.
+	halfway, err := s.Todo(ctx, report.ID)
+	require.NoError(t, err)
+	require.Equal(t, 1, halfway.UnmetDeps)
+
+	var blocked *domain.BlockedError
+	_, err = s.UpdateTodo(ctx, TodoUpdate{
+		ID: report.ID, Version: halfway.Version, Name: halfway.Name,
+		Status: domain.InProgress, Priority: halfway.Priority,
+	})
+	require.ErrorAs(t, err, &blocked)
+	require.Equal(t, "blocked by book the room", blocked.Error())
+
+	_, err = s.Complete(ctx, second.ID, second.Version, time.Now())
+	require.NoError(t, err)
+
+	// Both done, so it may start.
+	released, err := s.Todo(ctx, report.ID)
+	require.NoError(t, err)
+	require.Zero(t, released.UnmetDeps)
+	_, err = s.UpdateTodo(ctx, TodoUpdate{
+		ID: report.ID, Version: released.Version, Name: released.Name,
+		Status: domain.InProgress, Priority: released.Priority,
+	})
+	require.NoError(t, err)
+}
+
 func TestAddingADependencyTwiceCountsOnce(t *testing.T) {
 	s := NewTestStore(t)
 	ctx := context.Background()

@@ -18,9 +18,13 @@ jobs:
       - name: Vet
         working-directory: api
         run: go vet ./...
+      # With the race detector, which needs cgo and a C toolchain. The runner
+      # has both; a Windows development machine may not, and there it fails
+      # open rather than loudly, so this is the only place it actually runs.
+      # The event hub is the concurrent code that makes it worth having.
       - name: Test
         working-directory: api
-        run: go test ./...
+        run: go test -race ./...
 
   web:
     runs-on: ubuntu-latest

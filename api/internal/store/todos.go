@@ -163,8 +163,6 @@ func namedBlockers(ctx context.Context, tx pgx.Tx, id int64, err error) error {
 	return err
 }
 
-// Delete is a write too, so it carries a version. Otherwise the one operation
-// you cannot undo is the one that ignores what you were looking at.
 // Substring rather than prefix, because nobody types the first word of a task
 // name to find it. The caller requires three characters before asking, which
 // keeps the least selective searches off the database entirely.
@@ -187,6 +185,9 @@ func (s *Store) SearchTodos(ctx context.Context, term string, excludeID int64, l
 // Soft delete: the row stays and so do its dependency edges, which is the whole
 // point. A dependent of a deleted task stays blocked, because deleting work is
 // not doing it, and restoring puts the chain back exactly rather than roughly.
+//
+// It carries a version like any other write. Otherwise the one operation you
+// cannot undo is the one that ignores what you were looking at.
 const softDeleteTodo = `
 UPDATE todos SET deleted_at = now(), version = version + 1
 WHERE id = $1 AND version = $2 AND deleted_at IS NULL`
@@ -244,15 +245,28 @@ func (s *Store) RestoreTodo(ctx context.Context, id int64) (domain.Todo, error) 
 	return out, wrap("restore todo", err)
 }
 
-// Most recently deleted first: the thing you want back is almost always the
-// thing you just lost.
+/*
+ * Most recently deleted first: the thing you want back is almost always the
+ * thing you just lost.
+ *
+ * Bounded, like every other list here, and for the same reason: nothing purges
+ * the trash, so it is the one table that only ever grows. Capped rather than
+ * paged, because the useful end is the near end, and the number that says how
+ * much is really in there comes from the counts query.
+ *
+ * Found unbounded by the SF-016 audit, where it was the only list that would
+ * have handed back two hundred thousand rows in a single response.
+ */
+const trashLimit = 100
+
 const listTrash = `
 SELECT ` + todoColumns + `
 FROM todos WHERE deleted_at IS NOT NULL
-ORDER BY deleted_at DESC, id DESC`
+ORDER BY deleted_at DESC, id DESC
+LIMIT $1`
 
 func (s *Store) Trash(ctx context.Context) ([]domain.Todo, error) {
-	rows, err := s.pool.Query(ctx, listTrash)
+	rows, err := s.pool.Query(ctx, listTrash, trashLimit)
 	if err != nil {
 		return nil, wrap("list trash", err)
 	}

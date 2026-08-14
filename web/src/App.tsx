@@ -91,7 +91,10 @@ export function App() {
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <header className="flex items-center gap-3 border-b border-rule px-4 py-3">
           <h1 className="text-[15px] font-medium">{inTrash ? 'Trash' : viewTitle(view)}</h1>
-          {inTrash && <span className="tabular text-[13px] text-ink-faint">{trash?.length}</span>}
+          {/* From the counts rather than from the fetched array: the trash is
+              capped at the recent end, so its length is how much arrived, not
+              how much is there. */}
+          {inTrash && <span className="tabular text-[13px] text-ink-faint">{counts?.trash}</span>}
 
           {/* A link rather than a view in its own right. The trash is somewhere
               you go to undo something, not somewhere you work. */}
@@ -129,7 +132,16 @@ export function App() {
 
         <div className="flex-1 overflow-y-auto">
           {inTrash ? (
-            <TrashList todos={trash ?? []} onRestore={(id) => restore.mutate(id)} />
+            <>
+              <TrashList todos={trash ?? []} onRestore={(id) => restore.mutate(id)} />
+              {/* Said out loud rather than left to be inferred from a list that
+                  stops. Anything older than this is still in the database. */}
+              {trash && counts && counts.trash > trash.length && (
+                <p className="px-4 py-3 text-[13px] text-ink-faint" data-testid="trash-capped">
+                  Showing the {trash.length} most recently deleted of {counts.trash}.
+                </p>
+              )}
+            </>
           ) : (
             <>
               {isPending && <TaskListSkeleton />}
