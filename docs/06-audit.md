@@ -42,9 +42,11 @@ be correct — verified over HTTP before touching anything — but nothing was
 holding it there. Added `TestATaskWithTwoDependenciesNeedsBothCompleted`, which
 walks a task from two blockers to one to none.
 
-**2. The trash was the one unbounded list.** Every other list is keyset-paged;
-`listTrash` had no `LIMIT`, ignored the one it was given, and the front end
-fetched the whole array into a single cache entry and rendered all of it. A
+**2. The trash was the one unbounded list.** Every other list is keyset-paged.
+`listTrash` had no `LIMIT` at all, and since no endpoint here takes a page size
+from the client — deliberately, and the specification does not advertise one —
+there was nothing else to cap it either. The front end fetched the whole array
+into a single cache entry and rendered all of it. A
 trashed task costs about 330 bytes on the wire, so a trash holding as many rows
 as the performance document loads into the table would be a single response of
 roughly 65MB and as many DOM nodes. It is also the one table nothing ever prunes,
